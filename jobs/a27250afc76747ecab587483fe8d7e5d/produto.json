@@ -1,0 +1,33 @@
+{
+  "url_origem": "",
+  "shop_id": null,
+  "item_id": null,
+  "nome_limpo": "pinto de borracha",
+  "descricao_publica": "",
+  "roteiro_comercial": "Sabe aquele produto que chama atenção logo de cara? Olha esse achado. Esse é o pinto de borracha, encontrado na Shopee. O visual chama atenção e a proposta parece prática para o dia a dia. Antes de comprar, confira medidas, variações, avaliações e especificações informadas pelo vendedor. Se gostar do que viu, toque no produto e veja preço, cupom e frete atualizados na Shopee.",
+  "hook_visual": "OLHA ESSE ACHADO NA SHOPEE.",
+  "titulo_curto": "PINTO DE BORRACHA",
+  "pontos_visuais": [
+    "DESTAQUE",
+    "PRÁTICO",
+    "CONFIRA"
+  ],
+  "visual_theme": "marketplace",
+  "tags_engajamento": [
+    "#Shopee",
+    "#AchadinhosShopee",
+    "#ShopeeBrasil",
+    "#DicaDeCompra",
+    "#Produto",
+    "#Review",
+    "#pinto",
+    "#borracha"
+  ],
+  "metadata_status": "manual",
+  "voice_id": "pt-BR-AntonioNeural",
+  "observacao": "Roteiro comercial sem inventar preço, frete, estoque ou características técnicas não confirmadas.",
+  "cenario": "procedural",
+  "imagem_produto": false,
+  "imagem_ilustrativa": true,
+  "fonte_ilustracao": "procedural"
+}
