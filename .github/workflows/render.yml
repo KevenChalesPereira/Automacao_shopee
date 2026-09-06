@@ -1,0 +1,42 @@
+name: Render Shopee Video V2
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "ID do trabalho"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar dependências
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python3 -m pip install --break-system-packages edge-tts pillow
+
+      - name: Renderizar anúncio
+        run: |
+          mkdir -p resultado
+          python3 cloud/render.py "jobs/${{ inputs.job_id }}" resultado
+
+      - name: Enviar resultado
+        uses: actions/upload-artifact@v4
+        with:
+          name: shopee-video-${{ inputs.job_id }}
+          path: |
+            resultado/anuncio_final.mp4
+            resultado/produto.json
+            resultado/copie_e_cole_na_live.txt
+          retention-days: 1
