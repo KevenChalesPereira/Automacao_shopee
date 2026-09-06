@@ -1,0 +1,82 @@
+{
+  "url_origem": "https://shopee.com.br/Panela-De-Arroz-El%C3%A9trica-Multi-Camadas-De-Dupla-Camada-Dormit%C3%B3rio-Dom%C3%A9stico-Fun%C3%A7%C3%B5es-1.8L-i.378143264.58265132817",
+  "shop_id": "378143264",
+  "item_id": "58265132817",
+  "nome_limpo": "Panela De Arroz Elétrica Multi Camadas De Dupla Camada Dormitório Doméstico Funções 1.8L",
+  "descricao_publica": "",
+  "midias_publicas": [],
+  "videos_publicos": [],
+  "roteiro_comercial": "Quer fazer arroz sem ocupar o fogão? Olha essa panela elétrica. O destaque fica em dupla camada, preparo de arroz, capacidade 1,8 l, uma combinação fácil de entender para quem quer agilizar a cozinha. Antes de fechar, vale conferir a capacidade, o que acompanha o produto e as avaliações mais recentes. Curtiu a ideia? Toca no produto e confere capacidade, avaliações, preço, cupom e frete atualizados na Shopee.",
+  "hook_visual": "PRATICIDADE QUE FAZ DIFERENÇA NA COZINHA.",
+  "titulo_curto": "PANELA DE ARROZ ELÉTRICA",
+  "pontos_visuais": [
+    "DUPLA CAMADA",
+    "PREPARO DE ARROZ",
+    "CAPACIDADE 1,8 L"
+  ],
+  "visual_theme": "kitchen",
+  "tags_engajamento": [
+    "#Shopee",
+    "#AchadinhosShopee",
+    "#ShopeeBrasil",
+    "#DicaDeCompra",
+    "#Produto",
+    "#Review",
+    "#Panela",
+    "#Arroz",
+    "#Elétrica"
+  ],
+  "metadata_status": "http_200",
+  "voice_id": "pt-BR-AntonioNeural",
+  "roteiro_tts": "Quer fazer arroz sem ocupar o fogão? Olha essa panela elétrica. O destaque fica em dupla camada, preparo de arroz, capacidade 1,8 l, uma combinação fácil de entender para quem quer agilizar a cozinha. Antes de fechar, vale conferir a capacidade, o que acompanha o produto e as avaliações mais recentes. Curtiu a ideia? Toca no produto e confere capacidade, avaliações, preço, cupom e frete atualizados na Xopee.",
+  "idioma": "pt-BR",
+  "idiomas_extras": [],
+  "idioma_label": "Português (Brasil)",
+  "cta_main": "VER NA SHOPEE",
+  "cta_small": "TOQUE E VEJA",
+  "badge_text": "PRATICIDADE NA COZINHA",
+  "post_text_render": "🔥 PANELA DE ARROZ ELÉTRICA\n\nDUPLA CAMADA • PREPARO DE ARROZ • CAPACIDADE 1,8 L\n\n👀 Preparo mais prático para o dia a dia.\n🛒 Toque para ver preço, cupom e envio atualizados direto na Shopee.\n\n#Shopee #AchadinhosShopee #ShopeeBrasil #DicaDeCompra #Produto #Review #Panela #Arroz #Elétrica\n",
+  "estrategia_roteiro": "automatico_otimizado_com_vision",
+  "midias_usuario": [],
+  "videos_usuario": [],
+  "analise_produto": {
+    "categoria": "eletroportátil de cozinha",
+    "angulo_de_venda": "vende por praticidade no preparo, facilidade de uso e visualização clara das funções",
+    "beneficio_principal": "PREPARO MAIS PRÁTICO",
+    "destaques_prioritarios": [
+      "DUPLA CAMADA",
+      "PREPARO DE ARROZ",
+      "CAPACIDADE 1,8 L"
+    ],
+    "titulo_curto_sugerido": "PANELA DE ARROZ ELÉTRICA",
+    "gancho_sugerido": "MENOS TRABALHO NA COZINHA.",
+    "palavras_foco": [
+      "panela",
+      "arroz",
+      "elétrica",
+      "multi",
+      "camadas",
+      "dupla",
+      "camada",
+      "dormitório"
+    ],
+    "midias_detectadas": {
+      "imagens_pagina": 0,
+      "videos_pagina": 0,
+      "imagens_usuario": 0,
+      "videos_usuario": 0
+    },
+    "observacao": "A V19 usa essa análise para deixar o roteiro menos genérico e priorizar os pontos que aparecem no produto."
+  },
+  "observacao": "Roteiro comercial sem inventar preço, frete, estoque ou características técnicas não confirmadas.",
+  "vision_status": "fallback_local",
+  "cenario": "procedural",
+  "imagem_produto": true,
+  "imagem_ilustrativa": false,
+  "fonte_ilustracao": "",
+  "apresentador_virtual": false,
+  "apresentador_tipo": "none",
+  "quantidade_imagens_apoio": 0,
+  "quantidade_videos_apoio": 0,
+  "usa_midias_publicas_reais": false
+}
