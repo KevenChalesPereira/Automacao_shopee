@@ -1,0 +1,48 @@
+name: Render Shopee V3
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "ID do job"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache rembg
+        uses: actions/cache@v4
+        with:
+          path: ~/.u2net
+          key: rembg-u2net-v1
+
+      - name: Dependências
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python3 -m pip install --break-system-packages edge-tts pillow "rembg[cpu]"
+
+      - name: Render
+        run: |
+          mkdir -p resultado
+          python3 cloud/render_v3.py "jobs/${{ inputs.job_id }}" resultado
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: shopee-v3-${{ inputs.job_id }}
+          path: |
+            resultado/anuncio_final.mp4
+            resultado/produto.json
+            resultado/copie_e_cole_na_live.txt
+          retention-days: 1
