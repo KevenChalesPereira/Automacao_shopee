@@ -1,0 +1,27 @@
+{
+  "url_origem": "",
+  "shop_id": null,
+  "item_id": null,
+  "nome_limpo": "fone tws",
+  "descricao_publica": "",
+  "roteiro_comercial": "Olha esse achado para quem quer se livrar dos fios. Uma opção para música, vídeos e chamadas no dia a dia. Antes de comprar, confere as fotos, avaliações, especificações e as variações disponíveis. Preço, cupom e frete podem mudar, então vale abrir o anúncio e verificar a condição atual. Se fizer sentido para você, compara os detalhes e escolhe a opção que melhor combina com o que você precisa.",
+  "hook_visual": "Olha esse achado para quem quer se livrar dos fios.",
+  "pontos_visuais": [
+    "SEM FIO",
+    "COMPACTO",
+    "PRÁTICO"
+  ],
+  "tags_engajamento": [
+    "#Shopee",
+    "#AchadinhosShopee",
+    "#ShopeeBrasil",
+    "#DicaDeCompra",
+    "#Produto",
+    "#Review",
+    "#fone"
+  ],
+  "metadata_status": "manual",
+  "observacao": "Roteiro comercial sem inventar preço, frete, estoque ou características técnicas não confirmadas.",
+  "cenario": "procedural",
+  "imagem_produto": false
+}
