@@ -975,10 +975,17 @@ def generate_creator_assets(job_dir, product, voice, work):
     creator_script = work / 'creator_script.txt'
     creator_script.write_text(script_text, encoding='utf-8')
     creator_audio = work / 'creator_audio.mp3'
+    creator_audio_short = work / 'creator_audio_short.wav'
+    creator_seconds = float(product.get('creator_target_seconds') or 3.2)
     try:
         run([
-            'edge-tts','--file',str(creator_script),'--voice',voice,'--rate=+12%','--pitch=+4Hz',
+            'edge-tts','--file',str(creator_script),'--voice',voice,'--rate=+16%','--pitch=+4Hz',
             '--write-media',str(creator_audio)
+        ])
+        # O creator fala somente o hook. Cortar o áudio reduz MUITO o custo do fallback CPU.
+        run([
+            'ffmpeg','-y','-i',str(creator_audio),'-t',f'{creator_seconds:.2f}',
+            '-ar','16000','-ac','1','-c:a','pcm_s16le',str(creator_audio_short)
         ])
     except Exception as exc:
         info = {'ok': False, 'engine': 'tts_failed', 'error': str(exc)}
@@ -992,33 +999,71 @@ def generate_creator_assets(job_dir, product, voice, work):
             presenter = candidate
             break
 
-    script = Path(__file__).with_name('creator_hf.py')
-    cmd = [
-        sys.executable, str(script),
-        '--audio', str(creator_audio),
+    # Etapa 1: HF continua útil para criar a imagem de referência. Os Spaces de talking-head
+    # públicos hoje pedem janelas de GPU acima do limite do ZeroGPU, então não dependemos deles.
+    hf_script = Path(__file__).with_name('creator_hf.py')
+    hf_cmd = [
+        sys.executable, str(hf_script),
+        '--audio', str(creator_audio_short),
         '--prompt', str(product.get('creator_visual_prompt') or 'photorealistic synthetic ecommerce creator, half body, front facing'),
         '--output', str(creator_video),
         '--reference-output', str(creator_reference),
         '--info-output', str(info_path),
     ]
     if presenter:
-        cmd += ['--image', str(presenter)]
+        hf_cmd += ['--image', str(presenter)]
 
-    print('[>] Gerando Creator IA em GPU gratuita do Hugging Face...', flush=True)
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
-    print(result.stdout[-12000:], flush=True)
+    print('[>] Criando referência do Creator IA...', flush=True)
+    hf_result = subprocess.run(hf_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
+    print(hf_result.stdout[-12000:], flush=True)
     try:
-        info = json.loads(info_path.read_text(encoding='utf-8')) if info_path.is_file() else {}
+        hf_info = json.loads(info_path.read_text(encoding='utf-8')) if info_path.is_file() else {}
     except Exception:
-        info = {}
+        hf_info = {}
     if creator_video.is_file() and creator_video.stat().st_size > 20_000:
-        info['ok'] = True
-        return creator_video, info
-    info.setdefault('ok', False)
-    info.setdefault('error', f'creator_hf retornou código {result.returncode}')
-    return None, info
+        hf_info['ok'] = True
+        return creator_video, hf_info
 
-def render(job_dir, product, background, product_png, audio, captions_ass, work, creator_video=None, creator_seconds=4.0):
+    if not creator_reference.is_file() or creator_reference.stat().st_size < 5000:
+        hf_info.setdefault('ok', False)
+        hf_info.setdefault('error', 'Não consegui criar a imagem de referência do creator.')
+        info_path.write_text(json.dumps(hf_info, ensure_ascii=False, indent=2), encoding='utf-8')
+        return None, hf_info
+
+    # Etapa 2: fallback REAL, sem ZeroGPU: SadTalker rodando em CPU no próprio runner do GitHub.
+    cpu_script = Path(__file__).with_name('creator_sadtalker_cpu.py')
+    cpu_info_path = work / 'creator_cpu_info.json'
+    cpu_cmd = [
+        sys.executable, str(cpu_script),
+        '--image', str(creator_reference),
+        '--audio', str(creator_audio_short),
+        '--output', str(creator_video),
+        '--info-output', str(cpu_info_path),
+    ]
+    print('[>] ZeroGPU não gerou vídeo; tentando SadTalker em CPU no GitHub Actions...', flush=True)
+    cpu_result = subprocess.run(cpu_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
+    print(cpu_result.stdout[-16000:], flush=True)
+    try:
+        cpu_info = json.loads(cpu_info_path.read_text(encoding='utf-8')) if cpu_info_path.is_file() else {}
+    except Exception:
+        cpu_info = {}
+
+    merged = {
+        'ok': bool(creator_video.is_file() and creator_video.stat().st_size > 20_000),
+        'engine': cpu_info.get('engine') if cpu_info.get('ok') else (hf_info.get('engine') or 'none'),
+        'reference_source': hf_info.get('reference_source', ''),
+        'hf_authenticated': hf_info.get('hf_authenticated', False),
+        'zerogpu_attempts': hf_info.get('attempts', []),
+        'cpu_fallback': cpu_info,
+        'note': 'V20.3 usa ZeroGPU para a referência e SadTalker CPU no GitHub como fallback de vídeo.'
+    }
+    if not merged['ok']:
+        merged['error'] = cpu_info.get('error') or hf_info.get('error') or f'creator CPU retornou código {cpu_result.returncode}'
+    info_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding='utf-8')
+    return (creator_video if merged['ok'] else None), merged
+
+
+def render(job_dir, product, background, product_png, audio, captions_ass, work, creator_video=None, creator_seconds=3.2):
     total = audio_duration(audio)
     end_cta = max(5.0, total - 4.8)
     has_video = bool(product.get('quantidade_videos_apoio'))
@@ -1156,7 +1201,7 @@ def main():
     (output_dir/'copie_e_cole_na_live.txt').write_text(
         (product.get('post_text_render') or product.get('post_text') or f"🔥 {product.get('titulo_curto','ACHADO')}\n\n🛒 Confira o anúncio e veja detalhes atualizados.\n\n" + ' '.join(product.get('tags_engajamento') or []) + '\n'),
         encoding='utf-8')
-    print('[OK] Render V20.2 Creator IA concluído.',flush=True)
+    print('[OK] Render V20.3 Creator IA + CPU fallback concluído.',flush=True)
 
 if __name__=='__main__':
     main()
