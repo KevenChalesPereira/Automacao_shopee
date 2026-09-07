@@ -1,0 +1,56 @@
+name: Render Shopee V20 — Creator IA + Mídia Real
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "ID do job"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      GRADIO_ANALYTICS_ENABLED: "False"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Dependencias
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python3 -m pip install --break-system-packages edge-tts pillow gradio_client
+
+      - name: Render
+        run: |
+          mkdir -p resultado
+          python3 cloud/render_v20.py "jobs/${{ inputs.job_id }}" resultado
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: shopee-v20-${{ inputs.job_id }}
+          path: |
+            resultado/anuncio_final.mp4
+            resultado/creator_ai.mp4
+            resultado/creator_reference.png
+            resultado/creator_info.json
+            resultado/produto.json
+            resultado/legendas_tiktok.ass
+            resultado/copie_e_cole_na_live.txt
+            resultado/banner_story.png
+            resultado/banner_feed.png
+            resultado/capa_video.png
+            resultado/roteiro_narracao.txt
+            resultado/analise_produto.json
+            resultado/analise_produto_vision.json
+          if-no-files-found: ignore
+          retention-days: 1
