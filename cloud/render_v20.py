@@ -241,14 +241,25 @@ def prepare_product(job_dir, work):
         return None
     target = work / "product.png"
     try:
+        # Validação simples: evita quebrar o workflow caso HTML tenha sido salvo com extensão .jpg.
+        with Image.open(source) as probe:
+            probe.verify()
+    except Exception as exc:
+        print(f"[!] Arquivo de produto não é uma imagem válida: {exc}. Usarei fallback.", flush=True)
+        return None
+    try:
         if try_border_cutout(source, target):
             print("[OK] Produto recortado pelo fundo da imagem.", flush=True)
             return target
     except Exception as exc:
         print(f"[!] Recorte automático não aplicado: {exc}", flush=True)
-    product_card(source, target)
-    print("[OK] Produto preservado em card premium.", flush=True)
-    return target
+    try:
+        product_card(source, target)
+        print("[OK] Produto preservado em card premium.", flush=True)
+        return target
+    except Exception as exc:
+        print(f"[!] Não consegui preparar a imagem do produto: {exc}. Usarei fallback.", flush=True)
+        return None
 
 
 def prepare_presenter(job_dir, work):
@@ -1145,7 +1156,7 @@ def main():
     (output_dir/'copie_e_cole_na_live.txt').write_text(
         (product.get('post_text_render') or product.get('post_text') or f"🔥 {product.get('titulo_curto','ACHADO')}\n\n🛒 Confira o anúncio e veja detalhes atualizados.\n\n" + ' '.join(product.get('tags_engajamento') or []) + '\n'),
         encoding='utf-8')
-    print('[OK] Render V20 Creator IA concluído.',flush=True)
+    print('[OK] Render V20.2 Creator IA concluído.',flush=True)
 
 if __name__=='__main__':
     main()
