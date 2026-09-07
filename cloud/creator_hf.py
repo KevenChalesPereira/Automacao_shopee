@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Cria imagem e clipe de creator IA usando Hugging Face ZeroGPU.
+"""Cria a referência visual do Creator IA via Hugging Face.
 
-Fluxo padrão:
-1) FLUX.1-schnell -> imagem sintética de creator (se o job não trouxe presenter.jpg)
-2) EchoMimicV2 Accelerated -> meio-corpo + gestos + áudio
-3) Wan 2.2 I2V + LatentSync -> movimento natural + boca sincronizada
-4) EchoMimic V1 -> fallback de retrato
-5) SadTalker -> fallback leve
-
-O script é tolerante a falhas: qualquer indisponibilidade externa devolve status
-em JSON para o render tradicional continuar funcionando.
+Na V20.3 os endpoints ZeroGPU de talking-head são opcionais, porque os Spaces
+públicos observados estavam solicitando uma duração de GPU acima do limite.
+O vídeo falante confiável é gerado pelo fallback SadTalker CPU no GitHub Actions.
 """
 from __future__ import annotations
 
@@ -237,7 +231,7 @@ def main():
         'reference_source': '',
         'hf_authenticated': bool((os.getenv('HF_TOKEN') or '').strip()),
         'attempts': [],
-        'note': 'Serviços ZeroGPU públicos podem ter fila, quota diária ou ficar temporariamente indisponíveis.'
+        'note': 'V20.3 usa o Hugging Face principalmente para criar a referência; o talking-head confiável roda em CPU no GitHub.'
     }
 
     try:
@@ -249,13 +243,20 @@ def main():
             generate_creator_image(args.prompt, reference, temp_dir)
             info['reference_source'] = 'flux_1_schnell_zerogpu'
 
-        for engine in (try_echomimic_v2, try_wan_latentsync, try_echomimic_v1, try_sadtalker):
-            result = engine(reference, Path(args.audio).resolve(), output, temp_dir)
-            info['attempts'].append(result)
-            if result.get('ok'):
-                info['ok'] = True
-                info['engine'] = result.get('engine') or 'unknown'
-                break
+        if (os.getenv('SHOPEE_TRY_ZEROGPU_VIDEO') or '').strip() == '1':
+            for engine in (try_echomimic_v2, try_wan_latentsync, try_echomimic_v1, try_sadtalker):
+                result = engine(reference, Path(args.audio).resolve(), output, temp_dir)
+                info['attempts'].append(result)
+                if result.get('ok'):
+                    info['ok'] = True
+                    info['engine'] = result.get('engine') or 'unknown'
+                    break
+        else:
+            info['attempts'].append({
+                'ok': False,
+                'engine': 'zerogpu_video_skipped',
+                'error': 'Spaces públicos de talking-head estavam pedindo duração de GPU acima do limite; V20.3 usa fallback CPU no GitHub.'
+            })
 
     except Exception as exc:
         info['error'] = str(exc)
