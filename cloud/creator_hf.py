@@ -5,8 +5,9 @@
 Fluxo padrão:
 1) FLUX.1-schnell -> imagem sintética de creator (se o job não trouxe presenter.jpg)
 2) EchoMimicV2 Accelerated -> meio-corpo + gestos + áudio
-3) EchoMimic V1 -> fallback de retrato
-4) SadTalker -> fallback leve
+3) Wan 2.2 I2V + LatentSync -> movimento natural + boca sincronizada
+4) EchoMimic V1 -> fallback de retrato
+5) SadTalker -> fallback leve
 
 O script é tolerante a falhas: qualquer indisponibilidade externa devolve status
 em JSON para o render tradicional continuar funcionando.
@@ -154,6 +155,47 @@ def try_echomimic_v1(image, audio, destination, temp_dir):
     return {'ok': False, 'engine': 'echomimic_v1', 'error': str(last or 'sem saída')}
 
 
+
+def try_wan_latentsync(image, audio, destination, temp_dir):
+    """Fallback mais natural: Wan 2.2 anima o creator e LatentSync sincroniza a boca."""
+    log('[creator] Tentando Wan 2.2 I2V + LatentSync...')
+    motion = Path(temp_dir) / 'wan_creator_motion.mp4'
+    try:
+        wan = _client('zerogpu-aoti/wan2-2-fp8da-aoti-faster', temp_dir)
+        prompt = (
+            'realistic Brazilian social media creator speaking directly to camera, half body, '
+            'natural hand gestures, subtle head movement, friendly persuasive ecommerce presentation, '
+            'smartphone UGC video, realistic body motion, steady face identity, no text, no logos, '
+            'no product appearing in hands, natural blinking, natural shoulders and arms'
+        )
+        negative = (
+            'distorted face, extra fingers, deformed hands, duplicate person, text, watermark, '
+            'camera shake, identity change, warped mouth, frozen pose, low quality'
+        )
+        result = wan.predict(
+            _file(image), prompt, 4, negative, 3.5, 1.0, 1.0, 42, True,
+            api_name='/generate_video'
+        )
+        if not _copy_result(result, motion, {'.mp4', '.mov', '.webm', '.m4v'}):
+            return {'ok': False, 'engine': 'wan2.2_latentsync', 'error': 'Wan 2.2 não devolveu vídeo'}
+    except Exception as exc:
+        log(f'[creator] Wan 2.2 falhou: {exc}')
+        return {'ok': False, 'engine': 'wan2.2_latentsync', 'error': f'Wan: {exc}'}
+
+    try:
+        lipsync = _client('fffiloni/LatentSync', temp_dir)
+        result = lipsync.predict(
+            _file(motion), _file(audio),
+            api_name='/generate_lip_sync_video'
+        )
+        if _copy_result(result, destination, {'.mp4', '.mov', '.webm', '.m4v'}):
+            return {'ok': True, 'engine': 'wan2.2_latentsync'}
+        return {'ok': False, 'engine': 'wan2.2_latentsync', 'error': 'LatentSync não devolveu vídeo'}
+    except Exception as exc:
+        log(f'[creator] LatentSync falhou: {exc}')
+        return {'ok': False, 'engine': 'wan2.2_latentsync', 'error': f'LatentSync: {exc}'}
+
+
 def try_sadtalker(image, audio, destination, temp_dir):
     log('[creator] Tentando SadTalker (fallback final)...')
     client = _client('henrybit/SadTalker-Demo', temp_dir)
@@ -207,7 +249,7 @@ def main():
             generate_creator_image(args.prompt, reference, temp_dir)
             info['reference_source'] = 'flux_1_schnell_zerogpu'
 
-        for engine in (try_echomimic_v2, try_echomimic_v1, try_sadtalker):
+        for engine in (try_echomimic_v2, try_wan_latentsync, try_echomimic_v1, try_sadtalker):
             result = engine(reference, Path(args.audio).resolve(), output, temp_dir)
             info['attempts'].append(result)
             if result.get('ok'):
