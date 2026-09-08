@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Cria a referência visual do Creator IA via Hugging Face.
 
-Na V20.3 os endpoints ZeroGPU de talking-head são opcionais, porque os Spaces
+Na V21 os endpoints ZeroGPU de talking-head são opcionais, porque os Spaces
 públicos observados estavam solicitando uma duração de GPU acima do limite.
 O vídeo falante confiável é gerado pelo fallback SadTalker CPU no GitHub Actions.
 """
@@ -231,7 +231,7 @@ def main():
         'reference_source': '',
         'hf_authenticated': bool((os.getenv('HF_TOKEN') or '').strip()),
         'attempts': [],
-        'note': 'V20.3 usa o Hugging Face principalmente para criar a referência; o talking-head confiável roda em CPU no GitHub.'
+        'note': 'V21 usa o Hugging Face principalmente para criar a referência; o talking-head confiável roda em CPU no GitHub.'
     }
 
     try:
@@ -255,7 +255,7 @@ def main():
             info['attempts'].append({
                 'ok': False,
                 'engine': 'zerogpu_video_skipped',
-                'error': 'Spaces públicos de talking-head estavam pedindo duração de GPU acima do limite; V20.3 usa fallback CPU no GitHub.'
+                'error': 'Spaces públicos de talking-head estavam pedindo duração de GPU acima do limite; V21 usa fallback CPU no GitHub.'
             })
 
     except Exception as exc:
