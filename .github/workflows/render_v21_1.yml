@@ -1,0 +1,78 @@
+name: Render Shopee V21.1 — TikTok First + QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "ID do job"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      GRADIO_ANALYTICS_ENABLED: "False"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Cache SadTalker CPU
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/shopee-sadtalker-cpu
+          key: sadtalker-cpu-v21-1-${{ runner.os }}-py310
+
+      - name: Dependencias base
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core git wget
+          python -m pip install --upgrade pip
+          python -m pip install edge-tts pillow gradio_client
+
+      - name: Render
+        run: |
+          mkdir -p resultado
+          python cloud/render_v21_1.py "jobs/${{ inputs.job_id }}" resultado
+
+      - name: QA automático
+        if: always()
+        run: |
+          python qa_agent.py --output-dir resultado || true
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: shopee-v21-1-${{ inputs.job_id }}
+          path: |
+            resultado/anuncio_final.mp4
+            resultado/creator_ai.mp4
+            resultado/creator_reference.png
+            resultado/creator_info.json
+            resultado/produto.json
+            resultado/legendas_tiktok.ass
+            resultado/copie_e_cole_na_live.txt
+            resultado/banner_story.png
+            resultado/banner_feed.png
+            resultado/capa_video.png
+            resultado/roteiro_narracao.txt
+            resultado/analise_produto.json
+            resultado/analise_produto_vision.json
+            resultado/diagnostico_render.json
+            resultado/tiktok_referencias.json
+            resultado/qa_report.json
+            resultado/qa_report.txt
+            resultado/qa_contact_sheet.jpg
+          if-no-files-found: ignore
+          retention-days: 1
