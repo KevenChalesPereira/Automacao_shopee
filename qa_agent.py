@@ -178,7 +178,7 @@ def script_checks(product):
     if low.count('produto')>3:
         issues.append('A palavra “produto” aparece demais; soa como locução automática.')
     if len(script)>0 and script.count('.')>=5:
-        recommendations.append('Testar cortes de frase mais curtos para ritmo de TikTok.')
+        recommendations.append('Testar cortes de frase mais curtos para ritmo de vídeo curto.')
 
     return {
         'script':script,
@@ -205,7 +205,7 @@ def video_checks(output_dir: Path):
     else: issues.append(f'Duração fora da faixa 8–35s: {dur}s.')
     w,h=meta.get('width',0),meta.get('height',0)
     if h>w and w>=720 and h>=1280: good.append(f'Formato vertical adequado: {w}x{h}.')
-    else: issues.append(f'Formato/resolução não ideal para TikTok: {w}x{h}.')
+    else: issues.append(f'Formato/resolução não ideal para vídeo vertical: {w}x{h}.')
     if meta.get('has_audio'): good.append('Faixa de áudio presente.')
     else: issues.append('Vídeo final está sem áudio.')
 
@@ -248,14 +248,14 @@ def creator_checks(product, output_dir:Path):
         err=clean(info.get('error') or (info.get('cpu_fallback') or {}).get('error'))
         if err:
             warnings.append('Erro creator: ' + err[:450])
-        rec.append('Para o 9.9, não bloquear publicação por isso: usar vídeo real + edição TikTok-first e tratar creator como bônus.')
+        rec.append('Para o 9.9, não bloquear publicação por isso: usar vídeo real + edição Shopee-first e tratar creator como bônus.')
     else:
         passed.append('Creator IA não era requisito deste job.')
     return {'requested':requested,'exists':creator.is_file(),'info':info,'passed':passed,'warnings':warnings,'recommendations':rec}
 
 
 def main():
-    ap=argparse.ArgumentParser(description='QA automático do Shopee Video Cloud V21.1')
+    ap=argparse.ArgumentParser(description='QA automático do Shopee Video Cloud V22')
     ap.add_argument('--output-dir',required=True)
     ap.add_argument('--strict',action='store_true')
     a=ap.parse_args()
@@ -290,7 +290,7 @@ def main():
         'note':'Este QA mede integridade técnica e sinais de copy/ritmo. Não estima CTR, conversão ou vendas.'
     }
     (out/'qa_report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
-    lines=['QA SHOPEE VIDEO CLOUD V21.1','']
+    lines=['QA SHOPEE VIDEO CLOUD V22','']
     lines.append('STATUS: ' + ('FALHA TÉCNICA' if hard_fail else 'POSTÁVEL TECNICAMENTE'))
     lines.append('CREATOR IA: ' + ('OK' if c['exists'] else ('FALHOU/FALLBACK' if c['requested'] else 'NÃO SOLICITADO')))
     lines += ['', 'PASSOU:'] + [f'- {x}' for x in passed]
