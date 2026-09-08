@@ -10,14 +10,15 @@ def run(cmd, cwd=None, env=None, check=True):
     p = subprocess.run(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace')
     print(p.stdout[-12000:], flush=True)
     if check and p.returncode != 0:
-        raise RuntimeError(f'Comando falhou ({p.returncode}): {cmd[0]}')
+        tail = (p.stdout or '')[-7000:]
+        raise RuntimeError(f'Comando falhou ({p.returncode}): {cmd[0]}\n--- saída final ---\n{tail}')
     return p
 
 
 def ensure_runtime(root: Path):
     repo = root / 'SadTalker'
     venv = root / 'venv'
-    marker = root / '.ready_v20_3'
+    marker = root / '.ready_v21'
     root.mkdir(parents=True, exist_ok=True)
 
     if not repo.is_dir():
@@ -30,11 +31,13 @@ def ensure_runtime(root: Path):
     pip = venv / 'bin' / 'pip'
 
     if not marker.is_file():
-        run([str(py), '-m', 'pip', 'install', '--upgrade', 'pip', 'setuptools', 'wheel'])
+        run([str(py), '-m', 'pip', 'install', '--upgrade', 'pip<25', 'setuptools<76', 'wheel'])
         run([str(pip), 'install', '--index-url', 'https://download.pytorch.org/whl/cpu',
              'torch==2.0.1+cpu', 'torchvision==0.15.2+cpu', 'torchaudio==2.0.2+cpu'])
-        # CLI-only dependencies; avoids installing the optional TTS stack.
+        # SadTalker fixa numpy 1.23.4 no requirements oficial; reforçamos o pin antes e depois.
+        run([str(pip), 'install', 'numpy==1.23.4'])
         run([str(pip), 'install', '-r', str(repo/'requirements.txt')])
+        run([str(pip), 'install', 'numpy==1.23.4'])
         marker.write_text('ready\n', encoding='utf-8')
 
     checkpoints = repo / 'checkpoints'
@@ -83,7 +86,22 @@ def main():
             '--expression_scale', '1.05',
             '--cpu',
         ]
-        run(cmd, cwd=repo)
+        first_error = ''
+        try:
+            run(cmd + ['--still'], cwd=repo)
+        except Exception as exc:
+            first_error = str(exc)
+            # Segunda tentativa mais simples: preprocess resize costuma contornar falhas de crop/face alignment.
+            retry = list(cmd)
+            try:
+                pos = retry.index('--preprocess')
+                retry[pos+1] = 'resize'
+            except Exception:
+                pass
+            try:
+                run(retry + ['--still'], cwd=repo)
+            except Exception as exc2:
+                raise RuntimeError('SadTalker falhou nas duas estratégias.\n1) ' + first_error[-3500:] + '\n2) ' + str(exc2)[-3500:])
         candidates = sorted(result_dir.glob('*.mp4'), key=lambda p: p.stat().st_mtime, reverse=True)
         if not candidates:
             candidates = sorted(result_dir.rglob('*.mp4'), key=lambda p: p.stat().st_mtime, reverse=True)
