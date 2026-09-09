@@ -16,6 +16,13 @@ try:
 except Exception:
     Image = ImageDraw = ImageStat = None
 
+GRAMMAR_PATTERNS = (
+    (r'\besse areia\b', 'Concordância: usar “essa areia”.'),
+    (r'\bolha esse areia\b', 'Hook com artigo errado para “areia”.'),
+    (r'\b4kg a\.?$', 'Título/roteiro parece truncado depois de 4 kg.'),
+    (r'\buso prático, visual limpo, dia a dia\b', 'Destaques genéricos demais para um produto específico.'),
+)
+
 WEAK_PHRASES = (
     'dá uma olhada', 'gostou da proposta', 'faz sentido para quem', 'é o tipo de produto',
     'mostrei os detalhes', 'antes de fechar', 'vale conferir', 'se atende sua rotina',
@@ -157,6 +164,16 @@ def script_checks(product):
     elif points:
         issues.append('Poucas características visuais do produto aparecem no roteiro.')
 
+    grammar=[]
+    for pat,msg in GRAMMAR_PATTERNS:
+        if re.search(pat, low, flags=re.I):
+            grammar.append(msg)
+    if grammar:
+        issues.extend(grammar)
+        recommendations.append('Regerar a copy com concordância e categoria do produto antes de publicar.')
+    else:
+        good.append('Sem erros gramaticais conhecidos do gerador.')
+
     weak=[p for p in WEAK_PHRASES if p in low]
     if weak:
         issues.append('Frases genéricas detectadas: ' + ', '.join(weak[:5]) + '.')
@@ -255,7 +272,7 @@ def creator_checks(product, output_dir:Path):
 
 
 def main():
-    ap=argparse.ArgumentParser(description='QA automático do Shopee Video Cloud V22')
+    ap=argparse.ArgumentParser(description='QA automático do Shopee Video Cloud V22.1')
     ap.add_argument('--output-dir',required=True)
     ap.add_argument('--strict',action='store_true')
     a=ap.parse_args()
@@ -277,7 +294,7 @@ def main():
 
     hard_fail = (not v.get('metadata',{}).get('ok')) or (not v.get('metadata',{}).get('has_audio'))
     report={
-        'version':'21.1',
+        'version':'22.1',
         'hard_fail':hard_fail,
         'postable_standard':not hard_fail,
         'creator_ready':c['exists'],
@@ -290,7 +307,7 @@ def main():
         'note':'Este QA mede integridade técnica e sinais de copy/ritmo. Não estima CTR, conversão ou vendas.'
     }
     (out/'qa_report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
-    lines=['QA SHOPEE VIDEO CLOUD V22','']
+    lines=['QA SHOPEE VIDEO CLOUD V22.1','']
     lines.append('STATUS: ' + ('FALHA TÉCNICA' if hard_fail else 'POSTÁVEL TECNICAMENTE'))
     lines.append('CREATOR IA: ' + ('OK' if c['exists'] else ('FALHOU/FALLBACK' if c['requested'] else 'NÃO SOLICITADO')))
     lines += ['', 'PASSOU:'] + [f'- {x}' for x in passed]
