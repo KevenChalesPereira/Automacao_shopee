@@ -951,7 +951,7 @@ def generate_creator_assets(job_dir, product, voice, work):
     creator_seconds = float(product.get('creator_target_seconds') or 3.2)
     try:
         run([
-            'edge-tts','--file',str(creator_script),'--voice',voice,'--rate=+16%','--pitch=+4Hz',
+            'edge-tts','--file',str(creator_script),'--voice',voice,'--rate=+8%','--pitch=+0Hz',
             '--write-media',str(creator_audio)
         ])
         # O creator fala somente o hook. Cortar o áudio reduz MUITO o custo do fallback CPU.
@@ -1027,7 +1027,7 @@ def generate_creator_assets(job_dir, product, voice, work):
         'hf_authenticated': hf_info.get('hf_authenticated', False),
         'zerogpu_attempts': hf_info.get('attempts', []),
         'cpu_fallback': cpu_info,
-        'note': 'V22 usa ZeroGPU para a referência e SadTalker CPU no GitHub como fallback de vídeo.'
+        'note': 'V22.1 não usa Creator IA no fluxo principal; referência histórica: V22 usava ZeroGPU para a referência e SadTalker CPU no GitHub como fallback de vídeo.'
     }
     if not merged['ok']:
         merged['error'] = cpu_info.get('error') or hf_info.get('error') or f'creator CPU retornou código {cpu_result.returncode}'
@@ -1132,7 +1132,7 @@ def main():
     roteiro=work/'roteiro.txt'; roteiro.write_text(product.get('roteiro_tts') or product['roteiro_comercial'],encoding='utf-8')
     audio=work/'narracao.mp3'; srt=work/'subtitles.srt'
     voice = product.get('voice_id') or 'pt-BR-AntonioNeural'
-    run(['edge-tts','--file',str(roteiro),'--voice',voice,'--rate=+12%','--pitch=+4Hz','--write-media',str(audio),'--write-subtitles',str(srt)])
+    run(['edge-tts','--file',str(roteiro),'--voice',voice,'--rate=+6%','--pitch=+0Hz','--write-media',str(audio),'--write-subtitles',str(srt)])
     ass=work/'captions.ass'; make_shopee_ass(srt,ass)
     background=job_dir/'background.jpg'
     if not background.is_file():
@@ -1180,7 +1180,7 @@ def main():
         'final_bytes': (output_dir/'anuncio_final.mp4').stat().st_size if (output_dir/'anuncio_final.mp4').is_file() else 0,
     }
     (output_dir/'diagnostico_render.json').write_text(json.dumps(diagnostic, ensure_ascii=False, indent=2), encoding='utf-8')
-    print('[OK] Render V22 Shopee Core concluído.',flush=True)
+    print('[OK] Render V22.1 Shopee Core concluído.',flush=True)
 
 if __name__=='__main__':
     main()
