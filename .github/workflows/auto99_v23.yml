@@ -1,0 +1,65 @@
+name: Auto 9.9 Shopee V23
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'jobs/auto99/**'
+      - 'cloud/render_v23.py'
+      - '.github/workflows/auto99_v23.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render-batch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Dependências
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core espeak-ng
+          python3 -m pip install --break-system-packages edge-tts pillow
+
+      - name: Render lote 9.9
+        run: |
+          set -e
+          mkdir -p resultado
+          count=0
+          for job in jobs/auto99/*; do
+            [ -f "$job/produto.json" ] || continue
+            name="$(basename "$job")"
+            echo "==> Renderizando $name"
+            mkdir -p "resultado/$name"
+            python3 cloud/render_v23.py "$job" "resultado/$name"
+            count=$((count+1))
+          done
+          test "$count" -ge 1
+
+      - name: Resumo QA
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          rows=[]
+          for p in sorted(Path('resultado').glob('*/qa_report.json')):
+              d=json.loads(p.read_text())
+              rows.append({'produto':p.parent.name,**d})
+          Path('resultado/RESUMO_QA.json').write_text(json.dumps(rows,indent=2,ensure_ascii=False))
+          print(json.dumps(rows,indent=2,ensure_ascii=False))
+          PY
+
+      - name: Upload anúncios
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shopee-auto99-v23-${{ github.run_id }}
+          path: resultado/**
+          if-no-files-found: error
+          retention-days: 2
