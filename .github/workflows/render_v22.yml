@@ -1,4 +1,4 @@
-name: Render Shopee V22 — Core Estável + QA
+name: Render Shopee V22.1 — Core Estável + QA
 
 on:
   workflow_dispatch:
