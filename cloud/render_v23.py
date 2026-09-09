@@ -45,19 +45,37 @@ def tts(text,mp3,srt,voice):
   p=run(['edge-tts','--file',t,'--voice',v,'--rate=-2%','--pitch=+0Hz','--write-media',mp3,'--write-subtitles',srt],False)
   if p.returncode==0 and mp3.exists() and mp3.stat().st_size>1000:return v,'edge-tts'
  wav=mp3.with_suffix('.wav'); run(['espeak-ng','-v','pt-br','-s','155','-w',wav,text]); run(['ffmpeg','-y','-i',wav,'-codec:a','libmp3lame','-q:a','3',mp3]); D=dur(mp3); srt.write_text(f'1\n00:00:00,000 --> 00:00:{D:05.2f}\n{text}\n',encoding='utf-8'); return 'pt-br','espeak-fallback'
+def ass_from_srt(srt,ass):
+ raw=srt.read_text(encoding='utf-8',errors='ignore').strip(); events=[]
+ for block in re.split(r'\n\s*\n',raw):
+  lines=[x.strip() for x in block.splitlines() if x.strip()]
+  if len(lines)<3 or '-->' not in lines[1]: continue
+  a,b=[x.strip() for x in lines[1].split('-->')]; text=' '.join(lines[2:]); words=text.split(); chunks=[]; cur=[]
+  for word in words:
+   if len(' '.join(cur+[word]))>32 and cur: chunks.append(' '.join(cur)); cur=[word]
+   else: cur.append(word)
+  if cur: chunks.append(' '.join(cur))
+  def sec(t):
+   h,m,z=t.replace(',','.').split(':'); return int(h)*3600+int(m)*60+float(z)
+  def fmt(v):
+   h=int(v//3600); v-=h*3600; m=int(v//60); v-=m*60; return f'{h}:{m:02d}:{v:05.2f}'
+  st,en=sec(a),sec(b); weights=[max(1,len(c)) for c in chunks]; total=sum(weights); pos=st
+  for i,c in enumerate(chunks):
+   end=en if i==len(chunks)-1 else pos+(en-st)*weights[i]/total; events.append(f'Dialogue: 0,{fmt(pos)},{fmt(end)},Caption,,0,0,0,,{c}'); pos=end
+ head='''[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Caption,DejaVu Sans,54,&H00FFFFFF,&H000000FF,&H00101010,&H70000000,-1,0,0,0,100,100,0,0,1,4,1,2,70,70,330,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n'''
+ ass.write_text(head+'\n'.join(events)+'\n',encoding='utf-8')
 def render(job,out):
  out.mkdir(parents=True,exist_ok=True); w=out/'_work'; w.mkdir(exist_ok=True); p=json.loads((job/'produto.json').read_text()); imgs=[]
  for i,u in enumerate(p['media_urls'][:6]):
   a=w/f'r{i}.img'; b=w/f'i{i}.jpg'
   if dl(u,a): prep(a,b); imgs.append(b)
  if not imgs: raise RuntimeError('sem mídia real')
- mp3=w/'voz.mp3'; srt=w/'leg.srt'; voice,engine=tts(p['roteiro_tts'],mp3,srt,p.get('voice_id','pt-BR-FranciscaNeural')); D=max(8,dur(mp3)+.45); hook=w/'hook.png'; cta=w/'cta.png'; txtpng(p['hook_visual'],hook); txtpng(p['cta_main'],cta,True)
+ mp3=w/'voz.mp3'; srt=w/'leg.srt'; voice,engine=tts(p['roteiro_tts'],mp3,srt,p.get('voice_id','pt-BR-FranciscaNeural')); D=max(8,dur(mp3)+.45); ass=w/'leg.ass'; ass_from_srt(srt,ass); hook=w/'hook.png'; cta=w/'cta.png'; txtpng(p['hook_visual'],hook); txtpng(p['cta_main'],cta,True)
  segs=[]; each=D/min(5,len(imgs))
  for i,img in enumerate(imgs[:5]):
   frames=int(each*FPS); seg=w/f's{i}.mp4'; z="min(zoom+0.0007,1.075)" if i%2==0 else "if(lte(zoom,1),1.075,max(1,zoom-0.0007))"; vf=f"zoompan=z='{z}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d={frames}:s={W}x{H}:fps={FPS}"; run(['ffmpeg','-y','-loop','1','-i',img,'-vf',vf,'-t',f'{each:.3f}','-c:v','libx264','-preset','veryfast','-crf','19','-pix_fmt','yuv420p',seg]); segs.append(seg)
  L=w/'list.txt'; L.write_text(''.join(f"file '{x.resolve()}'\n" for x in segs)); base=w/'base.mp4'; run(['ffmpeg','-y','-f','concat','-safe','0','-i',L,'-c','copy',base]); final=out/'anuncio_final.mp4'; cs=max(0,D-2.6)
- style='FontName=DejaVu Sans,FontSize=18,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=230'
- fc=f"[0:v][1:v]overlay=0:0:enable='between(t,0,2.9)'[a];[a][2:v]overlay=0:0:enable='gte(t,{cs:.3f})'[b];[b]subtitles='{srt}':force_style='{style}'[v]"
+ fc=f"[0:v][1:v]overlay=0:0:enable='between(t,0,2.9)'[a];[a][2:v]overlay=0:0:enable='gte(t,{cs:.3f})'[b];[b]ass='{ass}'[v]"
  run(['ffmpeg','-y','-i',base,'-loop','1','-i',hook,'-loop','1','-i',cta,'-i',mp3,'-filter_complex',fc,'-map','[v]','-map','3:a','-t',f'{D:.3f}','-c:v','libx264','-preset','veryfast','-crf','18','-pix_fmt','yuv420p','-c:a','aac','-b:a','160k','-movflags','+faststart',final]); run(['ffmpeg','-y','-ss','1.2','-i',final,'-frames:v','1',out/'capa_video.jpg'])
- (out/'legenda_post.txt').write_text(p['post_text_render']); (out/'roteiro_narracao.txt').write_text(p['roteiro_tts']); meta={'version':'23-auto99','tts_engine':engine,'voice':voice,'duration':round(D,2),'media':len(imgs),'facts':p.get('fatos_verificados',[]),'source':p['url_origem']}; (out/'diagnostico_render.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2)); pr=json.loads(run(['ffprobe','-v','error','-show_entries','stream=codec_type,width,height:format=duration','-of','json',final]).stdout); ss=pr['streams']; v=next(x for x in ss if x['codec_type']=='video'); qa={'postable_standard':v.get('width')==1080 and v.get('height')==1920 and any(x['codec_type']=='audio' for x in ss),'width':v.get('width'),'height':v.get('height'),'duration':float(pr['format']['duration']),'has_audio':any(x['codec_type']=='audio' for x in ss),'media_downloaded':len(imgs),'tts_engine':engine}; (out/'qa_report.json').write_text(json.dumps(qa,indent=2)); print('[OK]',p['titulo_curto'])
+ (out/'legendas_shopee.ass').write_text(ass.read_text(encoding='utf-8'),encoding='utf-8'); (out/'legenda_post.txt').write_text(p['post_text_render']); (out/'roteiro_narracao.txt').write_text(p['roteiro_tts']); meta={'version':'23.1-auto99','tts_engine':engine,'voice':voice,'duration':round(D,2),'media':len(imgs),'facts':p.get('fatos_verificados',[]),'source':p['url_origem']}; (out/'diagnostico_render.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2)); pr=json.loads(run(['ffprobe','-v','error','-show_entries','stream=codec_type,width,height:format=duration','-of','json',final]).stdout); ss=pr['streams']; v=next(x for x in ss if x['codec_type']=='video'); qa={'postable_standard':v.get('width')==1080 and v.get('height')==1920 and any(x['codec_type']=='audio' for x in ss),'width':v.get('width'),'height':v.get('height'),'duration':float(pr['format']['duration']),'has_audio':any(x['codec_type']=='audio' for x in ss),'media_downloaded':len(imgs),'tts_engine':engine}; (out/'qa_report.json').write_text(json.dumps(qa,indent=2)); print('[OK]',p['titulo_curto'])
 if __name__=='__main__': render(Path(sys.argv[1]),Path(sys.argv[2]))
