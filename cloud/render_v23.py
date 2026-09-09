@@ -55,7 +55,7 @@ def render(job,out):
  segs=[]; each=D/min(5,len(imgs))
  for i,img in enumerate(imgs[:5]):
   frames=int(each*FPS); seg=w/f's{i}.mp4'; z="min(zoom+0.0007,1.075)" if i%2==0 else "if(lte(zoom,1),1.075,max(1,zoom-0.0007))"; vf=f"zoompan=z='{z}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d={frames}:s={W}x{H}:fps={FPS}"; run(['ffmpeg','-y','-loop','1','-i',img,'-vf',vf,'-t',f'{each:.3f}','-c:v','libx264','-preset','veryfast','-crf','19','-pix_fmt','yuv420p',seg]); segs.append(seg)
- L=w/'list.txt'; L.write_text(''.join(f"file '{x}'\n" for x in segs)); base=w/'base.mp4'; run(['ffmpeg','-y','-f','concat','-safe','0','-i',L,'-c','copy',base]); final=out/'anuncio_final.mp4'; cs=max(0,D-2.6)
+ L=w/'list.txt'; L.write_text(''.join(f"file '{x.resolve()}'\n" for x in segs)); base=w/'base.mp4'; run(['ffmpeg','-y','-f','concat','-safe','0','-i',L,'-c','copy',base]); final=out/'anuncio_final.mp4'; cs=max(0,D-2.6)
  style='FontName=DejaVu Sans,FontSize=18,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00101010,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=230'
  fc=f"[0:v][1:v]overlay=0:0:enable='between(t,0,2.9)'[a];[a][2:v]overlay=0:0:enable='gte(t,{cs:.3f})'[b];[b]subtitles='{srt}':force_style='{style}'[v]"
  run(['ffmpeg','-y','-i',base,'-loop','1','-i',hook,'-loop','1','-i',cta,'-i',mp3,'-filter_complex',fc,'-map','[v]','-map','3:a','-t',f'{D:.3f}','-c:v','libx264','-preset','veryfast','-crf','18','-pix_fmt','yuv420p','-c:a','aac','-b:a','160k','-movflags','+faststart',final]); run(['ffmpeg','-y','-ss','1.2','-i',final,'-frames:v','1',out/'capa_video.jpg'])
