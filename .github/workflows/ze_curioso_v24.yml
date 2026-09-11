@@ -7,9 +7,16 @@ on:
     paths:
       - "cloud/render_ze_curioso_v24.py"
       - "qa_ze_curioso.py"
+      - "ze_curioso_v24.py"
       - "examples/ze_curioso_demo.json"
       - ".github/workflows/ze_curioso_v24.yml"
   workflow_dispatch:
+    inputs:
+      job_id:
+        description: "ID do job já enviado para jobs/<id>/curiosidade.json"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -29,19 +36,29 @@ jobs:
           sudo apt-get install -y ffmpeg fonts-dejavu-core
           python3 -m pip install --break-system-packages edge-tts pillow
 
-      - name: Preparar job de demonstração
+      - name: Preparar job
+        shell: bash
         run: |
-          rm -rf jobs/ze-curioso-demo resultado_ze
-          mkdir -p jobs/ze-curioso-demo resultado_ze
-          cp examples/ze_curioso_demo.json jobs/ze-curioso-demo/curiosidade.json
+          rm -rf resultado_ze
+          mkdir -p resultado_ze
+          INPUT_JOB="${{ inputs.job_id }}"
+          if [ -n "$INPUT_JOB" ]; then
+            test -f "jobs/$INPUT_JOB/curiosidade.json"
+            echo "JOB_ID=$INPUT_JOB" >> "$GITHUB_ENV"
+          else
+            rm -rf jobs/ze-curioso-demo
+            mkdir -p jobs/ze-curioso-demo
+            cp examples/ze_curioso_demo.json jobs/ze-curioso-demo/curiosidade.json
+            echo "JOB_ID=ze-curioso-demo" >> "$GITHUB_ENV"
+          fi
 
       - name: Checagem de sintaxe
         run: |
-          python3 -m py_compile cloud/render_ze_curioso_v24.py qa_ze_curioso.py
+          python3 -m py_compile cloud/render_ze_curioso_v24.py qa_ze_curioso.py ze_curioso_v24.py
 
       - name: Render Zé Curioso V24
         run: |
-          python3 cloud/render_ze_curioso_v24.py jobs/ze-curioso-demo resultado_ze
+          python3 cloud/render_ze_curioso_v24.py "jobs/$JOB_ID" resultado_ze
 
       - name: QA dedicado
         run: |
@@ -50,7 +67,7 @@ jobs:
       - name: Upload do protótipo testado
         uses: actions/upload-artifact@v4
         with:
-          name: ze-curioso-v24-demo
+          name: ze-curioso-v24-${{ env.JOB_ID }}
           path: |
             resultado_ze/anuncio_final.mp4
             resultado_ze/capa_video.png
