@@ -1,0 +1,64 @@
+name: Zé Curioso Studio V24 — Backend Test
+
+on:
+  push:
+    branches:
+      - ze-curioso-v24
+    paths:
+      - "cloud/render_ze_curioso_v24.py"
+      - "qa_ze_curioso.py"
+      - "examples/ze_curioso_demo.json"
+      - ".github/workflows/ze_curioso_v24.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Dependências
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python3 -m pip install --break-system-packages edge-tts pillow
+
+      - name: Preparar job de demonstração
+        run: |
+          rm -rf jobs/ze-curioso-demo resultado_ze
+          mkdir -p jobs/ze-curioso-demo resultado_ze
+          cp examples/ze_curioso_demo.json jobs/ze-curioso-demo/curiosidade.json
+
+      - name: Checagem de sintaxe
+        run: |
+          python3 -m py_compile cloud/render_ze_curioso_v24.py qa_ze_curioso.py
+
+      - name: Render Zé Curioso V24
+        run: |
+          python3 cloud/render_ze_curioso_v24.py jobs/ze-curioso-demo resultado_ze
+
+      - name: QA dedicado
+        run: |
+          python3 qa_ze_curioso.py --output-dir resultado_ze
+
+      - name: Upload do protótipo testado
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-curioso-v24-demo
+          path: |
+            resultado_ze/anuncio_final.mp4
+            resultado_ze/capa_video.png
+            resultado_ze/curiosidade.json
+            resultado_ze/roteiro_narracao.txt
+            resultado_ze/legendas_ze_curioso.ass
+            resultado_ze/diagnostico_render.json
+            resultado_ze/qa_report.json
+            resultado_ze/qa_report.txt
+          if-no-files-found: error
+          retention-days: 3
