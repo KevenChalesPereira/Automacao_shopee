@@ -247,8 +247,8 @@ def draw_scene(job: dict, scene: dict, index: int, total: int, job_dir: Path, de
         img = cover_image(asset)
         shade = Image.new("RGBA", img.size, (0,0,0,0))
         sd = ImageDraw.Draw(shade, "RGBA")
-        sd.rectangle((0,0,W,430), fill=(0,0,0,90))
-        sd.rectangle((0,1320,W,H), fill=(0,0,0,105))
+        sd.rectangle((0,0,W,390), fill=(0,0,0,92))
+        sd.rectangle((0,1500,W,H), fill=(0,0,0,92))
         img = Image.alpha_composite(img, shade)
     else:
         img = gradient_background(index)
@@ -264,40 +264,34 @@ def draw_scene(job: dict, scene: dict, index: int, total: int, job_dir: Path, de
 
     title = clean(scene.get("titulo")) or clean(job.get("titulo")) or "CURIOSIDADE"
     title = wrap(title.upper(), 22)
-    title_y = 175 if index == 0 else 195
     d.multiline_text(
-        (64, title_y), title, font=font(68 if index == 0 else 60),
-        fill=(255,255,255,255), spacing=10, stroke_width=3, stroke_fill=(0,0,0,90)
+        (64, 170), title, font=font(66 if index == 0 else 58),
+        fill=(255,255,255,255), spacing=10,
+        stroke_width=3, stroke_fill=(0,0,0,88)
     )
 
-    text = clean(scene.get("texto")) or clean(job.get("hook"))
-    text = wrap(text, 31)
-
     if index == 0:
-        draw_mascot(img, 785, 1115, 0.76, "surprised")
-        d.rounded_rectangle((58, 1330, 710, 1600), radius=46, fill=(255,248,225,236))
-        d.multiline_text((96, 1395), text, font=font(46, False), fill=(35,27,25,255), spacing=14)
-        d.rounded_rectangle((70, 1645, 435, 1735), radius=32, fill=(234,104,49,238))
-        d.text((252,1690), "OXENTE...", anchor="mm", font=font(39), fill=(255,255,255,255))
-    elif index in (1,2):
-        d.rounded_rectangle((70, 1375, 1010, 1650), radius=46, fill=(8,11,19,160), outline=(255,255,255,42), width=2)
-        d.multiline_text((112, 1440), text, font=font(44, False), fill=(255,255,255,250), spacing=14)
-        pill = "RAPAZ..." if index == 1 else "MAS PERA AÍ..."
-        d.rounded_rectangle((72, 1270, 390 if index == 1 else 500, 1350), radius=28, fill=(255,177,72,225))
-        d.text((231 if index == 1 else 286, 1310), pill, anchor="mm", font=font(32), fill=(31,24,20,255))
+        draw_mascot(img, 820, 1215, 0.62, "surprised")
+        d.rounded_rectangle((58, 1285, 590, 1475), radius=44, fill=(255,248,225,238))
+        hook = clean(job.get("hook")) or clean(scene.get("texto"))
+        d.multiline_text((92, 1338), wrap(hook, 25), font=font(38, False), fill=(35,27,25,255), spacing=10)
+        d.rounded_rectangle((70, 1510, 380, 1590), radius=28, fill=(234,104,49,242))
+        d.text((225,1550), "OXENTE...", anchor="mm", font=font(35), fill=(255,255,255,255))
+    elif index == 1:
+        d.rounded_rectangle((70, 1280, 365, 1362), radius=28, fill=(255,177,72,232))
+        d.text((217,1321), "RAPAZ...", anchor="mm", font=font(32), fill=(31,24,20,255))
+    elif index == 2:
+        d.rounded_rectangle((70, 1280, 500, 1362), radius=28, fill=(255,177,72,232))
+        d.text((285,1321), "MAS PERA AÍ...", anchor="mm", font=font(31), fill=(31,24,20,255))
     elif index == 3:
-        draw_mascot(img, 830, 1185, 0.62, "point")
-        d.rounded_rectangle((58, 1290, 665, 1600), radius=46, fill=(8,11,19,155))
-        d.multiline_text((95, 1360), text, font=font(43, False), fill=(255,255,255,250), spacing=14)
-        d.rounded_rectangle((70, 1195, 470, 1270), radius=28, fill=(255,177,72,230))
-        d.text((270, 1232), "AGORA OLHA ISSO...", anchor="mm", font=font(30), fill=(31,24,20,255))
+        draw_mascot(img, 850, 1260, 0.50, "point")
+        d.rounded_rectangle((70, 1275, 470, 1355), radius=28, fill=(255,177,72,232))
+        d.text((270,1315), "AGORA OLHA ISSO...", anchor="mm", font=font(28), fill=(31,24,20,255))
     else:
-        draw_mascot(img, 540, 940, 0.78, "curious")
-        d.rounded_rectangle((80, 1390, 1000, 1605), radius=48, fill=(8,11,19,160))
-        d.multiline_text((120, 1440), text, font=font(42, False), fill=(255,255,255,250), spacing=12)
+        draw_mascot(img, 835, 1195, 0.50, "curious")
         cta = clean(job.get("cta")) or "Segue o Zé Curioso para mais curiosidades rápidas."
-        d.rounded_rectangle((90, 1665, 990, 1795), radius=46, fill=(234,104,49,245))
-        d.text((540, 1730), wrap(cta.upper(), 38), anchor="mm", font=font(31), fill=(255,255,255,255), align="center")
+        d.rounded_rectangle((82, 1450, 998, 1585), radius=44, fill=(234,104,49,244))
+        d.text((540, 1518), wrap(cta.upper(), 40), anchor="mm", font=font(29), fill=(255,255,255,255), align="center")
 
     img.convert("RGB").save(destination, quality=95)
 
@@ -311,7 +305,7 @@ def ass_time(seconds: float) -> str:
 
 
 def make_ass(scenes: list[dict], durations: list[float], path: Path):
-    header = """[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Caption,DejaVu Sans,50,&H00FFFFFF,&H000000FF,&H00101010,&H44000000,-1,0,0,0,100,100,0,0,1,4,1,2,72,72,120,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"""
+    header = """[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Caption,DejaVu Sans,48,&H00FFFFFF,&H000000FF,&H00101010,&H60000000,-1,0,0,0,100,100,0,0,3,3,0,2,72,72,120,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"""
     lines = [header]
     t = 0.0
     for scene, duration in zip(scenes, durations):
@@ -321,7 +315,8 @@ def make_ass(scenes: list[dict], durations: list[float], path: Path):
         if len(words) > 8:
             mid = max(3, len(words)//2)
             text = " ".join(words[:mid]) + r"\N" + " ".join(words[mid:])
-        lines.append(f"Dialogue: 0,{ass_time(t)},{ass_time(t+duration)},Caption,,0,0,0,,{text}\n")
+        margin_v = 255 if scene is scenes[-1] else 120
+        lines.append(f"Dialogue: 0,{ass_time(t)},{ass_time(t+duration)},Caption,,0,0,{margin_v},,,{text}\n")
         t += duration
     path.write_text("".join(lines), encoding="utf-8")
 
