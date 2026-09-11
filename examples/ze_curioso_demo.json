@@ -1,31 +1,32 @@
 {
-  "versao": "24.0.1",
+  "versao": "24.1",
   "tema": "Por que os gatos gostam de observar a gente no banheiro?",
   "titulo": "Por que o gato te segue até o banheiro?",
-  "hook": "Oxente... você já percebeu que o gato vira seu segurança até no banheiro?",
-  "roteiro": "Oxente... você já percebeu que o gato vira seu segurança até no banheiro? Isso acontece por uma mistura de curiosidade, rotina e vínculo. Gatos prestam muita atenção aos hábitos da casa e gostam de acompanhar movimentos previsíveis. O banheiro também costuma ser um lugar pequeno, silencioso e cheio de cheiros diferentes, então acaba despertando interesse. E tem mais: quando o gato confia em você, ficar por perto pode simplesmente fazer parte da rotina social dele. Agora olha isso... para o gato, seguir você até ali pode ser só mais um jeito de participar do que está acontecendo. Curtiu? Então segue o Zé Curioso para mais curiosidades rápidas.",
+  "hook": "Oxente... por que seu gato te segue até no banheiro?",
+  "roteiro": "Oxente... por que seu gato te segue até no banheiro? Na maioria das vezes, é uma mistura de curiosidade, rotina e vínculo. Gatos observam bastante os hábitos da casa e percebem quando você repete o mesmo caminho. O banheiro ainda é pequeno, silencioso e cheio de cheiros diferentes. Mas pera aí: quando ele confia em você, ficar por perto também pode fazer parte da rotina social. Agora olha isso... para o gato, acompanhar você pode ser só mais um jeito de participar do que está acontecendo.",
   "voz": "pt-BR-AntonioNeural",
   "cta": "Segue o Zé Curioso para mais curiosidades rápidas.",
+  "precisa_verificacao": false,
   "cenas": [
     {
-      "titulo": "ELE VAI ATÉ NO BANHEIRO",
-      "texto": "Oxente... o gato virou seu segurança?"
+      "titulo": "ATÉ NO BANHEIRO?",
+      "texto": "Por que seu gato te segue até lá?"
     },
     {
-      "titulo": "CURIOSIDADE",
-      "texto": "Gatos prestam muita atenção à rotina da casa."
+      "titulo": "ELE DECORA SUA ROTINA",
+      "texto": "Gatos percebem caminhos e hábitos que você repete todos os dias."
     },
     {
-      "titulo": "AMBIENTE DIFERENTE",
-      "texto": "Banheiro pequeno, silencioso e cheio de cheiros chama atenção."
+      "titulo": "O LUGAR CHAMA ATENÇÃO",
+      "texto": "Banheiro pequeno, silencioso e com cheiros diferentes desperta curiosidade."
     },
     {
-      "titulo": "VÍNCULO",
-      "texto": "Quando confia em você, ficar por perto pode fazer parte da rotina social."
+      "titulo": "TAMBÉM TEM VÍNCULO",
+      "texto": "Quando confia em você, ficar perto pode fazer parte da rotina social."
     },
     {
       "titulo": "AGORA OLHA ISSO...",
-      "texto": "Para ele, seguir você pode ser só mais um jeito de participar."
+      "texto": "Seguir você pode ser apenas mais um jeito de participar."
     }
   ]
 }
