@@ -8,6 +8,7 @@ on:
       - "cloud/render_ze_curioso_v24.py"
       - "qa_ze_curioso.py"
       - "ze_curioso_v24.py"
+      - "ze_curioso_v24_2.py"
       - "examples/ze_curioso_demo.json"
       - ".github/workflows/ze_curioso_v24.yml"
   workflow_dispatch:
@@ -54,7 +55,7 @@ jobs:
 
       - name: Checagem de sintaxe
         run: |
-          python3 -m py_compile cloud/render_ze_curioso_v24.py qa_ze_curioso.py ze_curioso_v24.py
+          python3 -m py_compile cloud/render_ze_curioso_v24.py qa_ze_curioso.py ze_curioso_v24.py ze_curioso_v24_2.py
 
       - name: Render Zé Curioso V24
         run: |
