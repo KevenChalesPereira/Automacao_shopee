@@ -1,0 +1,123 @@
+name: Zé Curioso Mobile Cloud
+
+on:
+  push:
+    branches:
+      - ze-curioso-v24
+    paths:
+      - "ze_curioso_mobile_cloud.py"
+      - ".github/ISSUE_TEMPLATE/gerar-video-ze-curioso.yml"
+      - ".github/workflows/ze_curioso_mobile.yml"
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      tema:
+        description: "Tema / pergunta"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  syntax:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Syntax
+        run: |
+          python3 -m py_compile ze_curioso_v24.py ze_curioso_mobile_cloud.py cloud/render_ze_curioso_auto_v24.py qa_ze_curioso.py
+
+  generate:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, '[Gerar vídeo]')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Dependências
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python3 -m pip install --break-system-packages edge-tts pillow
+
+      - name: Extrair tema
+        id: topic
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_TOPIC: ${{ inputs.tema }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          if os.environ.get('EVENT_NAME') == 'workflow_dispatch':
+              topic = os.environ.get('MANUAL_TOPIC','').strip()
+          else:
+              body = os.environ.get('ISSUE_BODY','')
+              m = re.search(r'### Tema / pergunta\s*\n+(.+?)(?:\n### |\Z)', body, re.S)
+              topic = (m.group(1).strip() if m else body.strip())
+          if not topic:
+              raise SystemExit('Tema vazio.')
+          Path('/tmp/topic.txt').write_text(topic, encoding='utf-8')
+          print('Tema:', topic)
+          PY
+
+      - name: Gerar roteiro e backgrounds IA
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          rm -rf mobile_job resultado_mobile
+          mkdir -p mobile_job resultado_mobile
+          TOPIC="$(cat /tmp/topic.txt)"
+          python3 ze_curioso_mobile_cloud.py --tema "$TOPIC" --out-dir mobile_job
+
+      - name: Render
+        run: |
+          python3 cloud/render_ze_curioso_auto_v24.py mobile_job resultado_mobile
+
+      - name: QA
+        run: |
+          python3 qa_ze_curioso.py --output-dir resultado_mobile
+
+      - name: Upload do vídeo
+        id: artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-curioso-mobile-${{ github.run_id }}
+          path: |
+            resultado_mobile/anuncio_final.mp4
+            resultado_mobile/capa_video.png
+            resultado_mobile/curiosidade.json
+            resultado_mobile/roteiro_narracao.txt
+            resultado_mobile/legendas_ze_curioso.ass
+            resultado_mobile/diagnostico_render.json
+            resultado_mobile/qa_report.json
+            resultado_mobile/qa_report.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Responder no issue
+        if: ${{ github.event_name == 'issues' && always() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ok = '${{ job.status }}' === 'success';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = ok
+              ? `✅ Vídeo gerado. Abra o workflow e baixe o artifact **ze-curioso-mobile-${context.runId}**:\n\n${runUrl}`
+              : `❌ A geração falhou. Abra o workflow para ver o erro:\n\n${runUrl}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
