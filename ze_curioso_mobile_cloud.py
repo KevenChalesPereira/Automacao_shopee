@@ -152,9 +152,6 @@ def normalize_job(result: dict, topic: str) -> dict:
     cta = clean(result.get("cta")) or "Segue o Zé Curioso para mais curiosidades rápidas."
     title = clean(result.get("titulo")) or clean(topic)[:100]
 
-    # A narração final deve acompanhar exatamente as cenas. O modelo às vezes
-    # devolve o campo 'roteiro' curto, apesar de as cinco cenas estarem boas.
-    # Usar as falas das cenas evita rejeitar um job válido e evita duplicações.
     scene_script = clean(" ".join(scene["texto"] for scene in scenes))
     model_script = clean(result.get("roteiro"))
     roteiro = scene_script if len(scene_script.split()) >= 45 else model_script
@@ -166,7 +163,7 @@ def normalize_job(result: dict, topic: str) -> dict:
         )
 
     return {
-        "versao": "24.mobile.2",
+        "versao": "24.mobile.3",
         "tema": clean(result.get("tema")) or clean(topic),
         "titulo": title[:110],
         "hook": hook[:240],
@@ -227,13 +224,20 @@ def generate_background(prompt: str, destination: Path, seed: int):
         + "/ai/run/"
         + CF_MODEL
     )
-    payload = {"prompt": prompt[:2000], "seed": seed, "steps": 6}
-    status, data = request_json(
-        url,
-        payload,
-        {"Authorization": f"Bearer {token}", "Accept": "application/json"},
-        timeout=180,
-    )
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+    # O endpoint REST que a conta está expondo rejeitou `seed` mesmo com a
+    # documentação do modelo ainda mostrando esse campo como opcional.
+    # Para a automação, seed não é necessário: geramos com prompt + steps.
+    payload = {"prompt": prompt[:2000], "steps": 6}
+    status, data = request_json(url, payload, headers, timeout=180)
+
+    # Compatibilidade defensiva: se o schema REST mudar e também rejeitar
+    # `steps`, repete apenas com o campo obrigatório `prompt`.
+    if status == 400 and "steps" in str(data).lower():
+        print("[!] Cloudflare rejeitou 'steps'; tentando apenas prompt...", flush=True)
+        status, data = request_json(url, {"prompt": prompt[:2000]}, headers, timeout=180)
+
     if status != 200:
         raise RuntimeError(f"Cloudflare HTTP {status}: {str(data)[:800]}")
 
