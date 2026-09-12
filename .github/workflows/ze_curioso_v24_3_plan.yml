@@ -1,0 +1,43 @@
+name: Zé Curioso V24.3 — Dola Storyboard Validation
+
+on:
+  push:
+    branches:
+      - ze-curioso-v24
+    paths:
+      - "ze_curioso_v24_3.py"
+      - "examples/ze_curioso_v24_3_demo.json"
+      - ".github/workflows/ze_curioso_v24_3_plan.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-dola-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Syntax
+        run: |
+          python3 -m py_compile ze_curioso_v24.py ze_curioso_v24_3.py
+
+      - name: Validate Dola-ready storyboard
+        run: |
+          python3 ze_curioso_v24_3.py --validar-json examples/ze_curioso_v24_3_demo.json > /tmp/dola_manifest_validated.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('/tmp/dola_manifest_validated.json')
+          data = json.loads(p.read_text(encoding='utf-8'))
+          assert data['pipeline'] == 'ai_video_first'
+          assert data['provider'] == 'dola_ai'
+          assert data['procedural_visual_fallback'] is False
+          assert 5 <= len(data['cenas']) <= 7
+          assert all(c['visual_prompt'] and c['motion_prompt'] for c in data['cenas'])
+          assert all(c['clip_filename'].endswith('.mp4') for c in data['cenas'])
+          print('V24_3_DOLA_PLAN_OK')
+          PY
