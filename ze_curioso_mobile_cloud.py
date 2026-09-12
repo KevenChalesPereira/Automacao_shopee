@@ -79,10 +79,6 @@ def script_schema():
 
 def groq_generate(api_key: str, prompt: str):
     headers = {"Authorization": f"Bearer {api_key}"}
-
-    # GPT-OSS usa tokens de raciocínio. Em JSON mode, 3500 tokens podiam acabar
-    # antes de fechar o documento. Strict Structured Outputs + reasoning baixo
-    # evita esse erro e garante o formato do roteiro.
     payload = {
         "model": GROQ_MODEL,
         "temperature": 0.45,
@@ -103,8 +99,6 @@ def groq_generate(api_key: str, prompt: str):
     if status == 200:
         return data
 
-    # Fallback: se a API rejeitar Structured Outputs por mudança de modelo,
-    # tenta JSON Object Mode com orçamento maior, sem derrubar a automação.
     print(f"[!] Groq structured output falhou HTTP {status}; tentando fallback JSON mode...", flush=True)
     fallback = {
         "model": GROQ_MODEL,
@@ -124,6 +118,68 @@ def groq_generate(api_key: str, prompt: str):
     return data2
 
 
+def normalize_job(result: dict, topic: str) -> dict:
+    """Normaliza a saída do Groq sem depender do validador rígido do FCC antigo."""
+    scenes_in = [x for x in (result.get("cenas") or []) if isinstance(x, dict)]
+    if len(scenes_in) != 5:
+        raise RuntimeError(f"Groq retornou {len(scenes_in)} cenas; esperado: 5.")
+
+    scenes = []
+    for idx, source in enumerate(scenes_in):
+        title = clean(source.get("titulo"))[:70] or f"Cena {idx + 1}"
+        text = clean(source.get("texto"))[:220]
+        if not text:
+            raise RuntimeError(f"Groq retornou a cena {idx + 1} sem texto narrável.")
+        mood = clean(source.get("mood")) or ("surprised" if idx == 0 else "curious")
+        background_prompt = clean(source.get("background_prompt"))
+        if not background_prompt:
+            background_prompt = (
+                f"Vertical 9:16 cinematic dark TikTok background about {topic}. "
+                f"Scene: {title}. Context: {text}. High contrast, strong depth, dramatic realistic lighting, "
+                "no text, no letters, no logo, no watermark, leave breathing room for mascot and captions."
+            )
+        scenes.append({
+            "titulo": title,
+            "texto": text,
+            "mood": mood,
+            "background_prompt": background_prompt[:2000],
+        })
+
+    hook = clean(result.get("hook"))
+    if not hook:
+        hook = scenes[0]["texto"]
+
+    cta = clean(result.get("cta")) or "Segue o Zé Curioso para mais curiosidades rápidas."
+    title = clean(result.get("titulo")) or clean(topic)[:100]
+
+    # A narração final deve acompanhar exatamente as cenas. O modelo às vezes
+    # devolve o campo 'roteiro' curto, apesar de as cinco cenas estarem boas.
+    # Usar as falas das cenas evita rejeitar um job válido e evita duplicações.
+    scene_script = clean(" ".join(scene["texto"] for scene in scenes))
+    model_script = clean(result.get("roteiro"))
+    roteiro = scene_script if len(scene_script.split()) >= 45 else model_script
+    if len(roteiro.split()) < 45:
+        roteiro = clean(f"{hook} {scene_script} {cta}")
+    if len(roteiro.split()) < 35:
+        raise RuntimeError(
+            f"Roteiro realmente curto demais após normalização: {len(roteiro.split())} palavras."
+        )
+
+    return {
+        "versao": "24.mobile.2",
+        "tema": clean(result.get("tema")) or clean(topic),
+        "titulo": title[:110],
+        "hook": hook[:240],
+        "roteiro": roteiro,
+        "voz": clean(result.get("voz")) or "pt-BR-AntonioNeural",
+        "cta": cta,
+        "precisa_verificacao": bool(result.get("precisa_verificacao")),
+        "cenas": scenes,
+        "visual_mode": "cloud_ai_background_plus_mascot",
+        "manual_background_required": False,
+    }
+
+
 def make_script(topic: str) -> dict:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -137,8 +193,10 @@ Tema: {topic}
 Regras:
 - hook forte e verdadeiro nos primeiros 2 segundos;
 - linguagem natural, simples e curiosa;
-- 60 a 90 palavras no roteiro total;
 - exatamente 5 cenas;
+- cada texto de cena deve ter aproximadamente 10 a 18 palavras;
+- a concatenação das 5 falas deve formar uma narração coesa de aproximadamente 60 a 90 palavras;
+- a cena 1 já começa com o hook, sem repetir depois;
 - CTA somente na cena 5: seguir o Zé Curioso;
 - não invente estudos, estatísticas ou números;
 - evite afirmações médicas ou extraordinárias;
@@ -154,24 +212,7 @@ Regras:
     result = core.extract_json_object(text)
     if not result:
         raise RuntimeError("Groq respondeu, mas não retornou JSON utilizável.")
-
-    job = core.validate_job(result, topic)
-    original_scenes = [x for x in (result.get("cenas") or []) if isinstance(x, dict)]
-    for idx, scene in enumerate(job["cenas"]):
-        source = original_scenes[idx] if idx < len(original_scenes) else {}
-        scene["mood"] = clean(source.get("mood")) or "curious"
-        scene["background_prompt"] = clean(source.get("background_prompt"))
-        if not scene["background_prompt"]:
-            scene["background_prompt"] = (
-                f"Vertical 9:16 cinematic dark TikTok background about {topic}. "
-                f"Scene: {scene['titulo']}. Context: {scene['texto']}. "
-                "High contrast, strong depth, dramatic realistic lighting, no text, no watermark, "
-                "leave breathing room for mascot and captions."
-            )
-    job["versao"] = "24.mobile.1"
-    job["visual_mode"] = "cloud_ai_background_plus_mascot"
-    job["manual_background_required"] = False
-    return job
+    return normalize_job(result, topic)
 
 
 def generate_background(prompt: str, destination: Path, seed: int):
@@ -211,7 +252,7 @@ def build_job(topic: str, out_dir: Path):
     out_dir.mkdir(parents=True, exist_ok=True)
     print("[>] Gerando roteiro estruturado no Groq...", flush=True)
     job = make_script(topic)
-    print("[OK] Roteiro Groq pronto.", flush=True)
+    print(f"[OK] Roteiro Groq pronto: {len(job['roteiro'].split())} palavras.", flush=True)
     scenes = job.get("cenas") or []
     for idx, scene in enumerate(scenes, 1):
         print(f"[>] Gerando background IA {idx}/{len(scenes)}...", flush=True)
