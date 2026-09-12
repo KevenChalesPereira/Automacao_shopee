@@ -43,80 +43,117 @@ def request_json(url, payload, headers, timeout=180):
         return exc.code, data
 
 
+def script_schema():
+    scene = {
+        "type": "object",
+        "properties": {
+            "titulo": {"type": "string"},
+            "texto": {"type": "string"},
+            "mood": {"type": "string", "enum": ["surprised", "curious", "point", "smile"]},
+            "background_prompt": {"type": "string"},
+        },
+        "required": ["titulo", "texto", "mood", "background_prompt"],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "tema": {"type": "string"},
+            "titulo": {"type": "string"},
+            "hook": {"type": "string"},
+            "roteiro": {"type": "string"},
+            "voz": {"type": "string"},
+            "cta": {"type": "string"},
+            "precisa_verificacao": {"type": "boolean"},
+            "cenas": {
+                "type": "array",
+                "minItems": 5,
+                "maxItems": 5,
+                "items": scene,
+            },
+        },
+        "required": ["tema", "titulo", "hook", "roteiro", "voz", "cta", "precisa_verificacao", "cenas"],
+        "additionalProperties": False,
+    }
+
+
+def groq_generate(api_key: str, prompt: str):
+    headers = {"Authorization": f"Bearer {api_key}"}
+
+    # GPT-OSS usa tokens de raciocínio. Em JSON mode, 3500 tokens podiam acabar
+    # antes de fechar o documento. Strict Structured Outputs + reasoning baixo
+    # evita esse erro e garante o formato do roteiro.
+    payload = {
+        "model": GROQ_MODEL,
+        "temperature": 0.45,
+        "max_completion_tokens": 7000,
+        "reasoning_effort": "low",
+        "include_reasoning": False,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "ze_curioso_script",
+                "strict": True,
+                "schema": script_schema(),
+            },
+        },
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    status, data = request_json(GROQ_URL, payload, headers, timeout=180)
+    if status == 200:
+        return data
+
+    # Fallback: se a API rejeitar Structured Outputs por mudança de modelo,
+    # tenta JSON Object Mode com orçamento maior, sem derrubar a automação.
+    print(f"[!] Groq structured output falhou HTTP {status}; tentando fallback JSON mode...", flush=True)
+    fallback = {
+        "model": GROQ_MODEL,
+        "temperature": 0.35,
+        "max_completion_tokens": 12000,
+        "reasoning_effort": "low",
+        "include_reasoning": False,
+        "response_format": {"type": "json_object"},
+        "messages": [{"role": "user", "content": prompt + "\nRetorne um único objeto JSON completo e feche todas as chaves."}],
+    }
+    status2, data2 = request_json(GROQ_URL, fallback, headers, timeout=180)
+    if status2 != 200:
+        raise RuntimeError(
+            f"Groq falhou nas duas tentativas. Structured HTTP {status}: {str(data)[:350]} | "
+            f"Fallback HTTP {status2}: {str(data2)[:500]}"
+        )
+    return data2
+
+
 def make_script(topic: str) -> dict:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("GROQ_API_KEY não configurada nos GitHub Actions Secrets.")
 
     prompt = f"""
-Você é o roteirista do canal dark de TikTok Zé Curioso.
-Crie um roteiro curto, curioso e natural em português brasileiro.
+Crie o roteiro de um vídeo vertical curto do canal dark de TikTok Zé Curioso.
+Idioma: português brasileiro.
+Tema: {topic}
 
-OBJETIVO
-- prender atenção nos 2 primeiros segundos;
-- criar vínculo com quem assiste;
-- explicar uma curiosidade de forma simples;
-- soar como fala humana, não como texto de apresentação;
-- usar o Zé Curioso como personagem recorrente, mas sem caricatura de sotaque.
-
-ESTILO
-- pode usar naturalmente: "Oxente...", "Rapaz...", "Mas pera aí...", "Agora olha isso...";
-- sem bullet points na narração;
-- sem estatísticas, estudos ou números inventados;
-- sem afirmações médicas ou extraordinárias;
-- 60 a 90 palavras;
+Regras:
+- hook forte e verdadeiro nos primeiros 2 segundos;
+- linguagem natural, simples e curiosa;
+- 60 a 90 palavras no roteiro total;
 - exatamente 5 cenas;
-- CTA somente na quinta cena.
-
-TEMA: {topic}
-
-Responda SOMENTE JSON válido:
-{{
-  "tema": "...",
-  "titulo": "...",
-  "hook": "...",
-  "roteiro": "...",
-  "voz": "pt-BR-AntonioNeural",
-  "cta": "Segue o Zé Curioso para mais curiosidades rápidas.",
-  "precisa_verificacao": false,
-  "cenas": [
-    {{"titulo":"...","texto":"...","mood":"surprised","background_prompt":"..."}},
-    {{"titulo":"...","texto":"...","mood":"curious","background_prompt":"..."}},
-    {{"titulo":"...","texto":"...","mood":"curious","background_prompt":"..."}},
-    {{"titulo":"...","texto":"...","mood":"point","background_prompt":"..."}},
-    {{"titulo":"...","texto":"...","mood":"smile","background_prompt":"..."}}
-  ]
-}}
-
-REGRAS PARA background_prompt
-- descreva apenas o FUNDO da cena;
-- imagem vertical 9:16 cinematográfica e chamativa;
-- coerente com a frase da cena;
-- alto contraste, profundidade e iluminação interessante;
-- sem texto, sem letras, sem logo, sem UI;
-- deixe espaço livre lateral ou inferior para o PNG do Zé Curioso e legendas.
+- CTA somente na cena 5: seguir o Zé Curioso;
+- não invente estudos, estatísticas ou números;
+- evite afirmações médicas ou extraordinárias;
+- Zé pode usar naturalmente "Oxente...", "Rapaz...", "Mas pera aí..." ou "Agora olha isso...", sem caricatura;
+- cada cena precisa de título curto, texto narrável e mood;
+- cada background_prompt descreve SOMENTE o cenário/fundo daquela cena: vertical 9:16, cinematográfico, chamativo, alto contraste, profundidade, iluminação interessante, coerente com a fala, sem texto, letras, logos, UI ou watermark, deixando espaço para personagem PNG e legendas;
+- voz: pt-BR-AntonioNeural;
+- precisa_verificacao deve ser true apenas se o tema depender de informação atual/controversa.
 """.strip()
 
-    payload = {
-        "model": GROQ_MODEL,
-        "temperature": 0.3,
-        "max_tokens": 3500,
-        "response_format": {"type": "json_object"},
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    status, data = request_json(
-        GROQ_URL,
-        payload,
-        {"Authorization": f"Bearer {api_key}"},
-        timeout=150,
-    )
-    if status != 200:
-        raise RuntimeError(f"Groq HTTP {status}: {str(data)[:800]}")
-
+    data = groq_generate(api_key, prompt)
     text = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
     result = core.extract_json_object(text)
     if not result:
-        raise RuntimeError("Groq não retornou JSON utilizável.")
+        raise RuntimeError("Groq respondeu, mas não retornou JSON utilizável.")
 
     job = core.validate_job(result, topic)
     original_scenes = [x for x in (result.get("cenas") or []) if isinstance(x, dict)]
@@ -131,7 +168,7 @@ REGRAS PARA background_prompt
                 "High contrast, strong depth, dramatic realistic lighting, no text, no watermark, "
                 "leave breathing room for mascot and captions."
             )
-    job["versao"] = "24.mobile"
+    job["versao"] = "24.mobile.1"
     job["visual_mode"] = "cloud_ai_background_plus_mascot"
     job["manual_background_required"] = False
     return job
@@ -172,7 +209,9 @@ def generate_background(prompt: str, destination: Path, seed: int):
 
 def build_job(topic: str, out_dir: Path):
     out_dir.mkdir(parents=True, exist_ok=True)
+    print("[>] Gerando roteiro estruturado no Groq...", flush=True)
     job = make_script(topic)
+    print("[OK] Roteiro Groq pronto.", flush=True)
     scenes = job.get("cenas") or []
     for idx, scene in enumerate(scenes, 1):
         print(f"[>] Gerando background IA {idx}/{len(scenes)}...", flush=True)
