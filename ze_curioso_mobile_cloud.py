@@ -65,12 +65,7 @@ def script_schema():
             "voz": {"type": "string"},
             "cta": {"type": "string"},
             "precisa_verificacao": {"type": "boolean"},
-            "cenas": {
-                "type": "array",
-                "minItems": 5,
-                "maxItems": 5,
-                "items": scene,
-            },
+            "cenas": {"type": "array", "minItems": 5, "maxItems": 5, "items": scene},
         },
         "required": ["tema", "titulo", "hook", "roteiro", "voz", "cta", "precisa_verificacao", "cenas"],
         "additionalProperties": False,
@@ -87,11 +82,7 @@ def groq_generate(api_key: str, prompt: str):
         "include_reasoning": False,
         "response_format": {
             "type": "json_schema",
-            "json_schema": {
-                "name": "ze_curioso_script",
-                "strict": True,
-                "schema": script_schema(),
-            },
+            "json_schema": {"name": "ze_curioso_script", "strict": True, "schema": script_schema()},
         },
         "messages": [{"role": "user", "content": prompt}],
     }
@@ -118,37 +109,39 @@ def groq_generate(api_key: str, prompt: str):
     return data2
 
 
+def final_background_prompt(topic: str, title: str, text: str, raw_visual: str, index: int) -> str:
+    return clean(f"""
+Vertical 9:16 cinematic image for a Brazilian TikTok curiosity video.
+Topic: {topic}.
+Narration in this scene: {text}.
+Concrete visual to show: {raw_visual}.
+Create a literal, easy-to-understand scene that directly illustrates the narration. Do not use an unrelated metaphor, abstract symbolism, underwater imagery, space, fantasy, surrealism, or random scenery unless the narration explicitly requires it. Keep visual continuity with a modern cinematic curiosity channel. Strong subject, depth, realistic or polished illustrative lighting, high contrast, visually interesting but believable. Leave some clean negative space in the lower side for a recurring cartoon presenter overlay. Do not generate a presenter, host, mascot, straw-hat man, text, captions, letters, logos, interface, infographic, poster, frame, watermark, or border. Scene {index + 1} of 5. Title idea: {title}.
+""")[:2000]
+
+
 def normalize_job(result: dict, topic: str) -> dict:
-    """Normaliza a saída do Groq sem depender do validador rígido do FCC antigo."""
     scenes_in = [x for x in (result.get("cenas") or []) if isinstance(x, dict)]
     if len(scenes_in) != 5:
         raise RuntimeError(f"Groq retornou {len(scenes_in)} cenas; esperado: 5.")
 
     scenes = []
     for idx, source in enumerate(scenes_in):
-        title = clean(source.get("titulo"))[:70] or f"Cena {idx + 1}"
+        title = clean(source.get("titulo"))[:70] or (clean(topic)[:70] if idx == 0 else f"Cena {idx + 1}")
         text = clean(source.get("texto"))[:220]
         if not text:
             raise RuntimeError(f"Groq retornou a cena {idx + 1} sem texto narrável.")
         mood = clean(source.get("mood")) or ("surprised" if idx == 0 else "curious")
-        background_prompt = clean(source.get("background_prompt"))
-        if not background_prompt:
-            background_prompt = (
-                f"Vertical 9:16 cinematic dark TikTok background about {topic}. "
-                f"Scene: {title}. Context: {text}. High contrast, strong depth, dramatic realistic lighting, "
-                "no text, no letters, no logo, no watermark, leave breathing room for mascot and captions."
-            )
+        raw_visual = clean(source.get("background_prompt"))
+        if not raw_visual:
+            raw_visual = f"A concrete scene that visually demonstrates: {text}"
         scenes.append({
             "titulo": title,
             "texto": text,
             "mood": mood,
-            "background_prompt": background_prompt[:2000],
+            "background_prompt": final_background_prompt(topic, title, text, raw_visual, idx),
         })
 
-    hook = clean(result.get("hook"))
-    if not hook:
-        hook = scenes[0]["texto"]
-
+    hook = clean(result.get("hook")) or scenes[0]["texto"]
     cta = clean(result.get("cta")) or "Segue o Zé Curioso para mais curiosidades rápidas."
     title = clean(result.get("titulo")) or clean(topic)[:100]
 
@@ -158,12 +151,10 @@ def normalize_job(result: dict, topic: str) -> dict:
     if len(roteiro.split()) < 45:
         roteiro = clean(f"{hook} {scene_script} {cta}")
     if len(roteiro.split()) < 35:
-        raise RuntimeError(
-            f"Roteiro realmente curto demais após normalização: {len(roteiro.split())} palavras."
-        )
+        raise RuntimeError(f"Roteiro realmente curto demais após normalização: {len(roteiro.split())} palavras.")
 
     return {
-        "versao": "24.mobile.3",
+        "versao": "24.mobile.4",
         "tema": clean(result.get("tema")) or clean(topic),
         "titulo": title[:110],
         "hook": hook[:240],
@@ -172,7 +163,8 @@ def normalize_job(result: dict, topic: str) -> dict:
         "cta": cta,
         "precisa_verificacao": bool(result.get("precisa_verificacao")),
         "cenas": scenes,
-        "visual_mode": "cloud_ai_background_plus_mascot",
+        "visual_mode": "cloud_ai_scene_plus_fixed_final_mascot",
+        "mascot_asset": "assets/ze_curioso/ze_main.webp",
         "manual_background_required": False,
     }
 
@@ -183,25 +175,35 @@ def make_script(topic: str) -> dict:
         raise RuntimeError("GROQ_API_KEY não configurada nos GitHub Actions Secrets.")
 
     prompt = f"""
-Crie o roteiro de um vídeo vertical curto do canal dark de TikTok Zé Curioso.
+Você é o roteirista do canal de curiosidades Zé Curioso. Crie um vídeo vertical curto para TikTok/Reels/Shorts.
 Idioma: português brasileiro.
-Tema: {topic}
+Tema/pergunta: {topic}
 
-Regras:
-- hook forte e verdadeiro nos primeiros 2 segundos;
-- linguagem natural, simples e curiosa;
+O personagem fixo Zé Curioso já existe como PNG e será colocado automaticamente sobre as imagens. NÃO descreva o Zé dentro dos backgrounds.
+
+Regras do roteiro:
+- hook forte e verdadeiro já na primeira fala, sem escrever a palavra 'HOOK';
+- linguagem natural, simples, curiosa e humana;
 - exatamente 5 cenas;
-- cada texto de cena deve ter aproximadamente 10 a 18 palavras;
-- a concatenação das 5 falas deve formar uma narração coesa de aproximadamente 60 a 90 palavras;
-- a cena 1 já começa com o hook, sem repetir depois;
-- CTA somente na cena 5: seguir o Zé Curioso;
+- cada fala com aproximadamente 10 a 18 palavras;
+- as 5 falas juntas devem formar uma narração coesa de aproximadamente 60 a 90 palavras;
+- sem repetir a mesma informação entre cenas;
+- CTA somente na fala da cena 5 e curto: seguir o Zé Curioso;
 - não invente estudos, estatísticas ou números;
 - evite afirmações médicas ou extraordinárias;
-- Zé pode usar naturalmente "Oxente...", "Rapaz...", "Mas pera aí..." ou "Agora olha isso...", sem caricatura;
-- cada cena precisa de título curto, texto narrável e mood;
-- cada background_prompt descreve SOMENTE o cenário/fundo daquela cena: vertical 9:16, cinematográfico, chamativo, alto contraste, profundidade, iluminação interessante, coerente com a fala, sem texto, letras, logos, UI ou watermark, deixando espaço para personagem PNG e legendas;
-- voz: pt-BR-AntonioNeural;
-- precisa_verificacao deve ser true apenas se o tema depender de informação atual/controversa.
+- Zé pode dizer naturalmente 'Oxente...', 'Rapaz...', 'Mas pera aí...' ou 'Agora olha isso...', no máximo uma ou duas vezes no vídeo;
+- titulo geral e titulo de cada cena devem ser frases reais e interessantes, nunca rótulos como 'HOOK', 'CENA 1', 'EXPLICAÇÃO' ou 'CTA';
+- voz: pt-BR-AntonioNeural.
+
+Regras de background_prompt de cada cena:
+- descreva UMA imagem concreta que mostre exatamente o que a fala está dizendo;
+- prefira ações, ambientes e objetos reconhecíveis, não conceitos vagos;
+- mantenha relação literal com o tema;
+- não mande criar texto, legenda, apresentador, mascote ou interface;
+- não use cenários aleatórios/metafóricos (oceano, espaço, laboratório, floresta etc.) se isso não estiver diretamente ligado à fala;
+- pense no background como a cena visual de um TikTok que precisa fazer sentido mesmo sem som.
+
+precisa_verificacao deve ser true apenas se o tema depender de informação atual ou controversa.
 """.strip()
 
     data = groq_generate(api_key, prompt)
@@ -218,26 +220,13 @@ def generate_background(prompt: str, destination: Path, seed: int):
     if not account or not token:
         raise RuntimeError("Cloudflare não configurado nos GitHub Actions Secrets.")
 
-    url = (
-        "https://api.cloudflare.com/client/v4/accounts/"
-        + urllib.parse.quote(account)
-        + "/ai/run/"
-        + CF_MODEL
-    )
+    url = "https://api.cloudflare.com/client/v4/accounts/" + urllib.parse.quote(account) + "/ai/run/" + CF_MODEL
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-
-    # O endpoint REST que a conta está expondo rejeitou `seed` mesmo com a
-    # documentação do modelo ainda mostrando esse campo como opcional.
-    # Para a automação, seed não é necessário: geramos com prompt + steps.
     payload = {"prompt": prompt[:2000], "steps": 6}
     status, data = request_json(url, payload, headers, timeout=180)
-
-    # Compatibilidade defensiva: se o schema REST mudar e também rejeitar
-    # `steps`, repete apenas com o campo obrigatório `prompt`.
     if status == 400 and "steps" in str(data).lower():
         print("[!] Cloudflare rejeitou 'steps'; tentando apenas prompt...", flush=True)
         status, data = request_json(url, {"prompt": prompt[:2000]}, headers, timeout=180)
-
     if status != 200:
         raise RuntimeError(f"Cloudflare HTTP {status}: {str(data)[:800]}")
 
@@ -254,15 +243,15 @@ def generate_background(prompt: str, destination: Path, seed: int):
 
 def build_job(topic: str, out_dir: Path):
     out_dir.mkdir(parents=True, exist_ok=True)
-    print("[>] Gerando roteiro estruturado no Groq...", flush=True)
+    print("[>] Gerando roteiro e direção visual no Groq...", flush=True)
     job = make_script(topic)
-    print(f"[OK] Roteiro Groq pronto: {len(job['roteiro'].split())} palavras.", flush=True)
+    print(f"[OK] Roteiro pronto: {len(job['roteiro'].split())} palavras.", flush=True)
     scenes = job.get("cenas") or []
     for idx, scene in enumerate(scenes, 1):
-        print(f"[>] Gerando background IA {idx}/{len(scenes)}...", flush=True)
+        print(f"[>] Gerando cena IA {idx}/{len(scenes)}...", flush=True)
         generate_background(scene["background_prompt"], out_dir / f"scene_{idx:02d}.jpg", 24000 + idx * 113)
     (out_dir / "curiosidade.json").write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("[OK] Job mobile cloud pronto.", flush=True)
+    print("[OK] Job mobile cloud pronto: roteiro + 5 cenas IA + mascote fixo definido.", flush=True)
 
 
 def main():
