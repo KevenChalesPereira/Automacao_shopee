@@ -55,7 +55,7 @@ def wrap(text, max_chars):
             cur = [word]
     if cur:
         lines.append(" ".join(cur))
-    return "\N".join(lines)
+    return (chr(92) + "N").join(lines)
 
 
 def ffprobe_duration(path):
@@ -95,7 +95,6 @@ def cover(path):
 def shade_background(img):
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(overlay, "RGBA")
-    # só o suficiente para legenda e hook continuarem legíveis
     d.rectangle((0, 0, W, 300), fill=(0, 0, 0, 78))
     d.rectangle((0, 1370, W, H), fill=(0, 0, 0, 62))
     return Image.alpha_composite(img, overlay)
@@ -106,12 +105,10 @@ def paste_mascot(base, index, total):
         raise RuntimeError(f"Mascote final ausente: {MASCOT}")
 
     ze = Image.open(MASCOT).convert("RGBA")
-    # ocupa cerca de 43% da altura: presente, mas sem tampar a cena
     target_h = 820 if index == 0 else 760
     target_w = max(1, round(ze.width * target_h / ze.height))
     ze = ze.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
-    # alterna lado para não deixar o vídeo visualmente travado; espelha para apontar para dentro
     on_right = index % 2 == 0
     if on_right:
         x = W - target_w + 28
@@ -120,7 +117,6 @@ def paste_mascot(base, index, total):
         x = -28
     y = H - target_h - 170
 
-    # sombra suave atrás do PNG
     alpha = ze.getchannel("A")
     shadow = Image.new("RGBA", ze.size, (0, 0, 0, 0))
     shadow.putalpha(alpha.filter(ImageFilter.GaussianBlur(18)))
@@ -148,10 +144,9 @@ def draw_scene(job, scene, index, total, job_dir, destination):
     img = shade_background(cover(bg))
     d = ImageDraw.Draw(img, "RGBA")
 
-    # Hook limpo só na abertura. Nada de rótulo 'HOOK', barra, balão ou card.
     headline = safe_title(scene, job, index)
     if headline:
-        text = wrap(headline.upper(), 22).replace("\\N", "\n")
+        text = wrap(headline.upper(), 22).replace(chr(92) + "N", "\n")
         d.multiline_text(
             (540, 165), text, anchor="ma", align="center",
             font=font(66), fill=(255, 255, 255, 255), spacing=8,
@@ -160,7 +155,6 @@ def draw_scene(job, scene, index, total, job_dir, destination):
 
     paste_mascot(img, index, total)
 
-    # CTA final curto e discreto; a narração continua sendo a protagonista.
     if index == total - 1:
         d.rounded_rectangle((180, 1540, 900, 1635), radius=34, fill=(0, 0, 0, 165))
         d.text((540, 1587), "SEGUE O ZÉ CURIOSO", anchor="mm", font=font(39), fill=(255, 235, 165, 255))
