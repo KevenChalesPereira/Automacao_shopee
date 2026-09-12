@@ -1,0 +1,65 @@
+{
+  "tema": "Por que os gatos seguem a gente até o banheiro?",
+  "titulo": "Por que seu gato te segue até o banheiro?",
+  "hook": "Oxente... até no banheiro ele vai atrás de você?",
+  "roteiro": "Oxente... até no banheiro ele vai atrás de você? Gatos observam muito a rotina da casa e costumam acompanhar movimentos previsíveis. Um cômodo pequeno, silencioso e diferente também pode chamar atenção. E quando existe confiança, ficar por perto pode simplesmente fazer parte da convivência. Agora olha isso: para o gato, seguir você até lá pode ser só mais uma forma de participar do que está acontecendo.",
+  "voz": "pt-BR-AntonioNeural",
+  "cta": "Segue o Zé Curioso para mais curiosidades rápidas.",
+  "cenas": [
+    {
+      "headline": "ATÉ NO BANHEIRO?",
+      "narration": "Oxente... até no banheiro ele vai atrás de você?",
+      "duration_seconds": 5,
+      "input_mode": "text_to_video",
+      "visual_prompt": "cinematic vertical shot of a curious black cat following a person down a cozy home hallway toward a bathroom door, warm practical lighting, shallow depth of field, realistic fur, natural domestic environment, no text in image",
+      "motion_prompt": "the cat walks behind the person, tail moving naturally, bathroom door slowly opens, subtle environmental motion",
+      "camera": "low tracking shot following the cat, gentle push-in",
+      "transition": "hard cut",
+      "ze_presence": true
+    },
+    {
+      "headline": "ELE DECORA SUA ROTINA",
+      "narration": "Gatos observam muito a rotina da casa e costumam acompanhar movimentos previsíveis.",
+      "duration_seconds": 5,
+      "input_mode": "text_to_video",
+      "visual_prompt": "realistic vertical cinematic scene of a house cat watching its owner repeat a morning routine, moving between bedroom and hallway, soft daylight through windows, natural home details, expressive alert cat, no text in image",
+      "motion_prompt": "owner crosses the room while the cat watches and follows a few steps, ears react to movement",
+      "camera": "slow lateral dolly with mild handheld realism",
+      "transition": "hard cut",
+      "ze_presence": false
+    },
+    {
+      "headline": "O LUGAR CHAMA ATENÇÃO",
+      "narration": "Um cômodo pequeno, silencioso e diferente também pode chamar atenção.",
+      "duration_seconds": 5,
+      "input_mode": "text_to_video",
+      "visual_prompt": "vertical cinematic bathroom doorway seen from cat height, curious cat cautiously entering a quiet bathroom, towels, sink, reflected light, subtle steam, detailed realistic environment, no written words",
+      "motion_prompt": "cat enters slowly, sniffs the air and looks around while soft steam drifts",
+      "camera": "low angle slow push-in through doorway",
+      "transition": "hard cut",
+      "ze_presence": false
+    },
+    {
+      "headline": "TAMBÉM TEM VÍNCULO",
+      "narration": "E quando existe confiança, ficar por perto pode simplesmente fazer parte da convivência.",
+      "duration_seconds": 5,
+      "input_mode": "text_to_video",
+      "visual_prompt": "warm cinematic vertical close scene of a relaxed cat sitting near its trusted owner at home, gentle affectionate body language, natural skin and fur detail, golden soft light, emotionally warm but realistic, no text",
+      "motion_prompt": "cat slowly leans closer and blinks while owner gently lowers a hand nearby without forcing contact",
+      "camera": "slow intimate push-in, shallow depth of field",
+      "transition": "hard cut",
+      "ze_presence": true
+    },
+    {
+      "headline": "AGORA OLHA ISSO...",
+      "narration": "Para o gato, seguir você até lá pode ser só mais uma forma de participar do que está acontecendo.",
+      "duration_seconds": 6,
+      "input_mode": "text_to_video",
+      "visual_prompt": "cinematic vertical final scene of a curious cat confidently walking beside its owner through a cozy home, playful natural movement, warm sunset light, realistic motion, optimistic ending, no text in image",
+      "motion_prompt": "cat walks beside owner, briefly looks up, tail sways naturally, both continue forward",
+      "camera": "smooth backward tracking shot, slight cinematic rise at the end",
+      "transition": "fade out",
+      "ze_presence": true
+    }
+  ]
+}
