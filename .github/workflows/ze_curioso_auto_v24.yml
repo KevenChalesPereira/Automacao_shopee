@@ -6,13 +6,15 @@ on:
       - ze-curioso-v24
     paths:
       - "ze_curioso_auto_v24.py"
+      - "gui_ze_curioso_auto.py"
       - "cloud/render_ze_curioso_auto_v24.py"
       - ".github/workflows/ze_curioso_auto_v24.yml"
   workflow_dispatch:
     inputs:
       job_id:
         description: "ID do job em jobs/<id>"
-        required: true
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -32,28 +34,32 @@ jobs:
           sudo apt-get install -y ffmpeg fonts-dejavu-core
           python3 -m pip install --break-system-packages edge-tts pillow
 
+      - name: Sintaxe
+        run: |
+          python3 -m py_compile ze_curioso_v24.py ze_curioso_v24_2.py ze_curioso_auto_v24.py gui_ze_curioso_auto.py cloud/render_ze_curioso_auto_v24.py qa_ze_curioso.py
+
       - name: Validar job
+        if: ${{ inputs.job_id != '' }}
         run: |
           test -f "jobs/${{ inputs.job_id }}/curiosidade.json"
           for n in 01 02 03 04 05; do
             test -f "jobs/${{ inputs.job_id }}/scene_${n}.jpg"
           done
 
-      - name: Sintaxe
-        run: |
-          python3 -m py_compile ze_curioso_v24.py ze_curioso_v24_2.py ze_curioso_auto_v24.py cloud/render_ze_curioso_auto_v24.py qa_ze_curioso.py
-
       - name: Render híbrido IA
+        if: ${{ inputs.job_id != '' }}
         run: |
           rm -rf resultado_ze_auto
           mkdir -p resultado_ze_auto
           python3 cloud/render_ze_curioso_auto_v24.py "jobs/${{ inputs.job_id }}" resultado_ze_auto
 
       - name: QA
+        if: ${{ inputs.job_id != '' }}
         run: |
           python3 qa_ze_curioso.py --output-dir resultado_ze_auto
 
       - name: Artifact
+        if: ${{ inputs.job_id != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: ze-curioso-v24-${{ inputs.job_id }}
