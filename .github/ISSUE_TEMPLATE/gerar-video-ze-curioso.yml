@@ -1,0 +1,16 @@
+name: Gerar vídeo do Zé Curioso
+description: Gera um vídeo completo na nuvem usando apenas o tema informado.
+title: "[Gerar vídeo] "
+body:
+  - type: textarea
+    id: tema
+    attributes:
+      label: Tema / pergunta
+      description: Escreva a curiosidade que você quer transformar em vídeo.
+      placeholder: Por que os gatos seguem a gente até o banheiro?
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        Depois de enviar, o GitHub Actions cria roteiro, backgrounds de IA, narração, legendas e MP4 automaticamente.
