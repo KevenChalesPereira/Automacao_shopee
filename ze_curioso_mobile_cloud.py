@@ -43,70 +43,45 @@ def request_json(url, payload, headers, timeout=180):
         return exc.code, data
 
 
-def script_schema():
-    scene = {
-        "type": "object",
-        "properties": {
-            "titulo": {"type": "string"},
-            "texto": {"type": "string"},
-            "mood": {"type": "string", "enum": ["surprised", "curious", "point", "smile"]},
-            "background_prompt": {"type": "string"},
-        },
-        "required": ["titulo", "texto", "mood", "background_prompt"],
-        "additionalProperties": False,
-    }
-    return {
-        "type": "object",
-        "properties": {
-            "tema": {"type": "string"},
-            "titulo": {"type": "string"},
-            "hook": {"type": "string"},
-            "roteiro": {"type": "string"},
-            "voz": {"type": "string"},
-            "cta": {"type": "string"},
-            "precisa_verificacao": {"type": "boolean"},
-            "cenas": {"type": "array", "minItems": 5, "maxItems": 5, "items": scene},
-        },
-        "required": ["tema", "titulo", "hook", "roteiro", "voz", "cta", "precisa_verificacao", "cenas"],
-        "additionalProperties": False,
-    }
-
-
-def groq_generate(api_key: str, prompt: str):
+def groq_json(api_key: str, prompt: str):
+    """Pede JSON válido sem depender de JSON Schema específico do modelo."""
     headers = {"Authorization": f"Bearer {api_key}"}
     payload = {
         "model": GROQ_MODEL,
-        "temperature": 0.45,
-        "max_completion_tokens": 7000,
-        "reasoning_effort": "low",
-        "include_reasoning": False,
-        "response_format": {
-            "type": "json_schema",
-            "json_schema": {"name": "ze_curioso_script", "strict": True, "schema": script_schema()},
-        },
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    status, data = request_json(GROQ_URL, payload, headers, timeout=180)
-    if status == 200:
-        return data
-
-    print(f"[!] Groq structured output falhou HTTP {status}; tentando fallback JSON mode...", flush=True)
-    fallback = {
-        "model": GROQ_MODEL,
-        "temperature": 0.35,
-        "max_completion_tokens": 12000,
+        "temperature": 0.38,
+        "max_completion_tokens": 8000,
         "reasoning_effort": "low",
         "include_reasoning": False,
         "response_format": {"type": "json_object"},
-        "messages": [{"role": "user", "content": prompt + "\nRetorne um único objeto JSON completo e feche todas as chaves."}],
+        "messages": [{"role": "user", "content": prompt}],
     }
-    status2, data2 = request_json(GROQ_URL, fallback, headers, timeout=180)
-    if status2 != 200:
-        raise RuntimeError(
-            f"Groq falhou nas duas tentativas. Structured HTTP {status}: {str(data)[:350]} | "
-            f"Fallback HTTP {status2}: {str(data2)[:500]}"
-        )
-    return data2
+    status, data = request_json(GROQ_URL, payload, headers, timeout=180)
+    if status != 200:
+        raise RuntimeError(f"Groq HTTP {status}: {str(data)[:800]}")
+    return data
+
+
+def pick(obj: dict, *keys):
+    for key in keys:
+        value = obj.get(key)
+        if clean(value):
+            return value
+    return ""
+
+
+def split_into_five(text: str):
+    """Divide uma narração em 5 blocos equilibrados sem depender da pontuação do modelo."""
+    words = clean(text).split()
+    if len(words) < 35:
+        return []
+    chunks = []
+    n = len(words)
+    start = 0
+    for i in range(5):
+        end = round((i + 1) * n / 5)
+        chunks.append(" ".join(words[start:end]).strip())
+        start = end
+    return chunks if all(chunks) else []
 
 
 def final_background_prompt(topic: str, title: str, text: str, raw_visual: str, index: int) -> str:
@@ -120,48 +95,62 @@ Create a literal, easy-to-understand scene that directly illustrates the narrati
 
 
 def normalize_job(result: dict, topic: str) -> dict:
-    scenes_in = [x for x in (result.get("cenas") or []) if isinstance(x, dict)]
+    scenes_in = result.get("cenas") or result.get("scenes") or []
+    scenes_in = [x for x in scenes_in if isinstance(x, dict)]
     if len(scenes_in) != 5:
         raise RuntimeError(f"Groq retornou {len(scenes_in)} cenas; esperado: 5.")
 
+    texts = [
+        clean(pick(scene, "texto", "fala", "narracao", "narração", "voiceover", "script", "caption"))[:220]
+        for scene in scenes_in
+    ]
+
+    # Alguns modelos devolvem as cenas visuais certas, mas deixam as falas vazias.
+    # Nesse caso, reaproveita a narração geral e a divide em 5 partes equilibradas.
+    if any(not t for t in texts):
+        general_script = clean(pick(result, "roteiro", "narracao", "narração", "script", "voiceover"))
+        rebuilt = split_into_five(general_script)
+        if rebuilt:
+            texts = rebuilt
+
+    if any(not t for t in texts):
+        missing = [str(i + 1) for i, t in enumerate(texts) if not t]
+        raise RuntimeError("Groq deixou cena(s) sem fala: " + ", ".join(missing))
+
     scenes = []
     for idx, source in enumerate(scenes_in):
-        title = clean(source.get("titulo"))[:70] or (clean(topic)[:70] if idx == 0 else f"Cena {idx + 1}")
-        text = clean(source.get("texto"))[:220]
-        if not text:
-            raise RuntimeError(f"Groq retornou a cena {idx + 1} sem texto narrável.")
-        mood = clean(source.get("mood")) or ("surprised" if idx == 0 else "curious")
-        raw_visual = clean(source.get("background_prompt"))
+        title = clean(pick(source, "titulo", "title", "headline"))[:70]
+        if not title:
+            title = clean(topic)[:70] if idx == 0 else f"Cena {idx + 1}"
+        mood = clean(pick(source, "mood", "expressao", "expressão", "expression")) or ("surprised" if idx == 0 else "curious")
+        raw_visual = clean(pick(source, "background_prompt", "visual", "imagem", "image_prompt", "cenario", "cenário", "scene_prompt"))
         if not raw_visual:
-            raw_visual = f"A concrete scene that visually demonstrates: {text}"
+            raw_visual = f"A concrete scene that visually demonstrates: {texts[idx]}"
         scenes.append({
             "titulo": title,
-            "texto": text,
+            "texto": texts[idx],
             "mood": mood,
-            "background_prompt": final_background_prompt(topic, title, text, raw_visual, idx),
+            "background_prompt": final_background_prompt(topic, title, texts[idx], raw_visual, idx),
         })
 
-    hook = clean(result.get("hook")) or scenes[0]["texto"]
-    cta = clean(result.get("cta")) or "Segue o Zé Curioso para mais curiosidades rápidas."
-    title = clean(result.get("titulo")) or clean(topic)[:100]
+    hook = clean(pick(result, "hook", "gancho")) or scenes[0]["texto"]
+    cta = clean(pick(result, "cta", "call_to_action")) or "Segue o Zé Curioso para mais curiosidades rápidas."
+    title = clean(pick(result, "titulo", "title")) or clean(topic)[:100]
 
-    scene_script = clean(" ".join(scene["texto"] for scene in scenes))
-    model_script = clean(result.get("roteiro"))
-    roteiro = scene_script if len(scene_script.split()) >= 45 else model_script
+    # O áudio deve ser exatamente a soma das 5 falas, sem texto escondido nem repetição.
+    roteiro = clean(" ".join(scene["texto"] for scene in scenes))
     if len(roteiro.split()) < 45:
-        roteiro = clean(f"{hook} {scene_script} {cta}")
-    if len(roteiro.split()) < 35:
-        raise RuntimeError(f"Roteiro realmente curto demais após normalização: {len(roteiro.split())} palavras.")
+        raise RuntimeError(f"Roteiro curto demais: {len(roteiro.split())} palavras.")
 
     return {
-        "versao": "24.mobile.4",
-        "tema": clean(result.get("tema")) or clean(topic),
+        "versao": "24.mobile.5",
+        "tema": clean(pick(result, "tema", "topic")) or clean(topic),
         "titulo": title[:110],
         "hook": hook[:240],
         "roteiro": roteiro,
-        "voz": clean(result.get("voz")) or "pt-BR-AntonioNeural",
+        "voz": "pt-BR-AntonioNeural",
         "cta": cta,
-        "precisa_verificacao": bool(result.get("precisa_verificacao")),
+        "precisa_verificacao": bool(result.get("precisa_verificacao") or result.get("needs_verification")),
         "cenas": scenes,
         "visual_mode": "cloud_ai_scene_plus_fixed_final_mascot",
         "mascot_asset": "assets/ze_curioso/ze_main.webp",
@@ -175,38 +164,51 @@ def make_script(topic: str) -> dict:
         raise RuntimeError("GROQ_API_KEY não configurada nos GitHub Actions Secrets.")
 
     prompt = f"""
-Você é o roteirista do canal de curiosidades Zé Curioso. Crie um vídeo vertical curto para TikTok/Reels/Shorts.
+Você é o roteirista do canal de curiosidades Zé Curioso. Gere SOMENTE um objeto JSON válido.
 Idioma: português brasileiro.
 Tema/pergunta: {topic}
 
+Use EXATAMENTE esta estrutura e estes nomes de campos:
+{{
+  "tema": "...",
+  "titulo": "...",
+  "hook": "...",
+  "roteiro": "narração completa",
+  "voz": "pt-BR-AntonioNeural",
+  "cta": "...",
+  "precisa_verificacao": false,
+  "cenas": [
+    {{"titulo":"...", "texto":"...", "mood":"surprised", "background_prompt":"..."}},
+    {{"titulo":"...", "texto":"...", "mood":"curious", "background_prompt":"..."}},
+    {{"titulo":"...", "texto":"...", "mood":"point", "background_prompt":"..."}},
+    {{"titulo":"...", "texto":"...", "mood":"curious", "background_prompt":"..."}},
+    {{"titulo":"...", "texto":"...", "mood":"smile", "background_prompt":"..."}}
+  ]
+}}
+
 O personagem fixo Zé Curioso já existe como PNG e será colocado automaticamente sobre as imagens. NÃO descreva o Zé dentro dos backgrounds.
 
-Regras do roteiro:
-- hook forte e verdadeiro já na primeira fala, sem escrever a palavra 'HOOK';
-- linguagem natural, simples, curiosa e humana;
-- exatamente 5 cenas;
-- cada fala com aproximadamente 10 a 18 palavras;
-- as 5 falas juntas devem formar uma narração coesa de aproximadamente 60 a 90 palavras;
-- sem repetir a mesma informação entre cenas;
-- CTA somente na fala da cena 5 e curto: seguir o Zé Curioso;
-- não invente estudos, estatísticas ou números;
-- evite afirmações médicas ou extraordinárias;
-- Zé pode dizer naturalmente 'Oxente...', 'Rapaz...', 'Mas pera aí...' ou 'Agora olha isso...', no máximo uma ou duas vezes no vídeo;
-- titulo geral e titulo de cada cena devem ser frases reais e interessantes, nunca rótulos como 'HOOK', 'CENA 1', 'EXPLICAÇÃO' ou 'CTA';
-- voz: pt-BR-AntonioNeural.
-
-Regras de background_prompt de cada cena:
-- descreva UMA imagem concreta que mostre exatamente o que a fala está dizendo;
-- prefira ações, ambientes e objetos reconhecíveis, não conceitos vagos;
-- mantenha relação literal com o tema;
-- não mande criar texto, legenda, apresentador, mascote ou interface;
-- não use cenários aleatórios/metafóricos (oceano, espaço, laboratório, floresta etc.) se isso não estiver diretamente ligado à fala;
-- pense no background como a cena visual de um TikTok que precisa fazer sentido mesmo sem som.
-
-precisa_verificacao deve ser true apenas se o tema depender de informação atual ou controversa.
+Regras obrigatórias:
+- exatamente 5 cenas e todas precisam ter o campo "texto" preenchido;
+- hook forte e verdadeiro já no "texto" da primeira cena, sem escrever a palavra HOOK;
+- linguagem natural, simples e humana;
+- cada "texto" deve ter aproximadamente 10 a 18 palavras;
+- as 5 falas juntas devem formar uma explicação coesa de aproximadamente 60 a 90 palavras;
+- "roteiro" deve ser exatamente a concatenação das 5 falas, sem conteúdo extra;
+- sem repetir a mesma informação;
+- CTA curto somente no "texto" da cena 5: seguir o Zé Curioso;
+- não invente estudos, estatísticas, números, causas absolutas ou explicações científicas que não sejam bem estabelecidas;
+- quando houver mais de uma explicação plausível, diga isso de forma simples (por exemplo: companhia, curiosidade, rotina, segurança ou atenção);
+- no máximo uma ou duas expressões como "Oxente..." ou "Rapaz..." no vídeo;
+- títulos reais e interessantes; nunca use rótulos como HOOK, CENA 1, EXPLICAÇÃO ou CTA;
+- "background_prompt" deve descrever UMA imagem concreta e literal que mostre a fala daquela cena;
+- não peça texto, legenda, apresentador, mascote ou interface no background;
+- não use oceano, espaço, laboratório, floresta ou cenários aleatórios se a fala não exigir isso;
+- "precisa_verificacao" só é true se o tema depender de informação atual ou controversa.
 """.strip()
 
-    data = groq_generate(api_key, prompt)
+    print("[>] Gerando roteiro e direção visual no Groq...", flush=True)
+    data = groq_json(api_key, prompt)
     text = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
     result = core.extract_json_object(text)
     if not result:
@@ -243,7 +245,6 @@ def generate_background(prompt: str, destination: Path, seed: int):
 
 def build_job(topic: str, out_dir: Path):
     out_dir.mkdir(parents=True, exist_ok=True)
-    print("[>] Gerando roteiro e direção visual no Groq...", flush=True)
     job = make_script(topic)
     print(f"[OK] Roteiro pronto: {len(job['roteiro'].split())} palavras.", flush=True)
     scenes = job.get("cenas") or []
@@ -251,7 +252,7 @@ def build_job(topic: str, out_dir: Path):
         print(f"[>] Gerando cena IA {idx}/{len(scenes)}...", flush=True)
         generate_background(scene["background_prompt"], out_dir / f"scene_{idx:02d}.jpg", 24000 + idx * 113)
     (out_dir / "curiosidade.json").write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("[OK] Job mobile cloud pronto: roteiro + 5 cenas IA + mascote fixo definido.", flush=True)
+    print("[OK] Job mobile cloud pronto: roteiro + 5 cenas IA + mascote final.", flush=True)
 
 
 def main():
