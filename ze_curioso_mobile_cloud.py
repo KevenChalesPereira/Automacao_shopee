@@ -18,6 +18,9 @@ import ze_curioso_v24 as core
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
 CF_MODEL = "@cf/black-forest-labs/flux-1-schnell"
+VOICE = "pt-BR-MacerioMultilingualNeural"
+OPENING = "Se liga nessa, curioso:"
+CLOSING = "Agora você sabe. Bora pra próxima com o Zé!"
 
 
 def clean(value):
@@ -47,7 +50,7 @@ def groq_json(api_key: str, prompt: str):
     headers = {"Authorization": f"Bearer {api_key}"}
     payload = {
         "model": GROQ_MODEL,
-        "temperature": 0.38,
+        "temperature": 0.42,
         "max_completion_tokens": 8000,
         "reasoning_effort": "low",
         "include_reasoning": False,
@@ -92,7 +95,8 @@ IMPORTANT COMPOSITION RULES:
 - DO NOT generate any human, person, man, woman, child, face, silhouette, humanoid, cartoon person, presenter, host, mascot, straw-hat character, tiny person, figurine, doll, statue shaped like a person, or human-like figure anywhere in the image, including the distance or background.
 - If the topic involves an animal, show only the animal and environment needed for the explanation; do not add a human owner.
 - No text, captions, letters, logos, interface, infographic, poster, watermark or border.
-- Leave the lower-left area visually clean for the recurring host overlay and keep the center-right moderately clean for a speech bubble.
+- Keep the lower corners reasonably clean because the recurring host can appear on either side.
+- Keep the center area readable and visually interesting, but do not leave a giant empty hole.
 
 Create a literal, easy-to-understand scene that directly illustrates the narration. Avoid unrelated metaphors, surrealism, fantasy or random scenery unless the narration explicitly requires them. Use a consistent modern cinematic curiosity-channel look, strong depth, believable lighting and high contrast. Scene {index + 1} of 5. Title idea: {title}.
 """)[:2000]
@@ -114,6 +118,12 @@ def normalize_job(result: dict, topic: str) -> dict:
         missing = [str(i + 1) for i, t in enumerate(texts) if not t]
         raise RuntimeError("Groq deixou cena(s) sem fala: " + ", ".join(missing))
 
+    # Bordões fixos para criar reconhecimento sem engolir o conteúdo.
+    if not texts[0].lower().startswith("se liga nessa"):
+        texts[0] = clean(f"{OPENING} {texts[0]}")[:240]
+    if "bora pra próxima com o zé" not in texts[-1].lower():
+        texts[-1] = clean(f"{texts[-1]} {CLOSING}")[:260]
+
     scenes = []
     for idx, source in enumerate(scenes_in):
         title = clean(pick(source, "titulo", "title", "headline"))[:70] or (clean(topic)[:70] if idx == 0 else f"Cena {idx + 1}")
@@ -128,24 +138,26 @@ def normalize_job(result: dict, topic: str) -> dict:
             "background_prompt": final_background_prompt(topic, title, texts[idx], raw_visual, idx),
         })
 
-    hook = clean(pick(result, "hook", "gancho")) or scenes[0]["texto"]
-    cta = clean(pick(result, "cta", "call_to_action")) or "Segue o Zé Curioso para mais curiosidades rápidas."
+    hook = scenes[0]["texto"]
+    cta = CLOSING
     title = clean(pick(result, "titulo", "title")) or clean(topic)[:100]
     roteiro = clean(" ".join(scene["texto"] for scene in scenes))
     if len(roteiro.split()) < 45:
         raise RuntimeError(f"Roteiro curto demais: {len(roteiro.split())} palavras.")
 
     return {
-        "versao": "24.mobile.6",
+        "versao": "24.mobile.7",
         "tema": clean(pick(result, "tema", "topic")) or clean(topic),
         "titulo": title[:110],
-        "hook": hook[:240],
+        "hook": hook[:260],
         "roteiro": roteiro,
-        "voz": "pt-BR-AntonioNeural",
+        "voz": VOICE,
         "cta": cta,
+        "bordao_abertura": OPENING,
+        "bordao_fechamento": CLOSING,
         "precisa_verificacao": bool(result.get("precisa_verificacao") or result.get("needs_verification")),
         "cenas": scenes,
-        "visual_mode": "cloud_ai_background_no_humans_plus_fixed_mascot_speech_bubble",
+        "visual_mode": "cloud_ai_background_no_humans_plus_fixed_mascot_rounded_dynamic_bubble",
         "mascot_asset": "assets/ze_curioso/ze_main.png",
         "manual_background_required": False,
     }
@@ -167,7 +179,7 @@ Use EXATAMENTE esta estrutura:
   "titulo": "...",
   "hook": "...",
   "roteiro": "narração completa",
-  "voz": "pt-BR-AntonioNeural",
+  "voz": "{VOICE}",
   "cta": "...",
   "precisa_verificacao": false,
   "cenas": [
@@ -181,14 +193,21 @@ Use EXATAMENTE esta estrutura:
 
 O Zé Curioso já existe como PNG e será colocado depois. NÃO descreva nenhum apresentador ou pessoa nos backgrounds.
 
-Regras:
+IDENTIDADE DO CANAL:
+- A primeira fala deve começar naturalmente com: "{OPENING}"
+- A última fala deve terminar com: "{CLOSING}"
+- Esses bordões precisam soar naturais, não como propaganda.
+
+REGRAS DE ROTEIRO:
 - exatamente 5 cenas, todas com "texto";
-- primeira fala precisa ser um gancho forte e verdadeiro, sem escrever HOOK;
-- 10 a 18 palavras por cena; 60 a 90 palavras no total;
+- primeira fala precisa prender atenção em até 2 segundos;
+- 10 a 18 palavras por cena antes dos bordões; 65 a 95 palavras no total;
 - roteiro = concatenação exata das 5 falas;
-- CTA curto apenas na cena 5;
-- linguagem natural e simples;
+- linguagem jovem, natural, conversada e fácil de ouvir;
+- sem cara de texto escolar e sem introdução enrolada;
+- use pequenas viradas como "só que tem um detalhe" ou "e aqui fica interessante" quando couber;
 - sem estudos, números ou causas inventadas;
+- se houver mais de uma explicação plausível, diga isso com clareza;
 - títulos reais, nunca rótulos técnicos;
 - cada background_prompt descreve uma imagem concreta e literal da fala;
 - NÃO pedir pessoa, apresentador, rosto, silhueta, mascote, boneco, personagem humano, texto, legenda ou interface no background;
@@ -240,7 +259,7 @@ def build_job(topic: str, out_dir: Path):
         print(f"[>] Gerando cena IA {idx}/{len(scenes)}...", flush=True)
         generate_background(scene["background_prompt"], out_dir / f"scene_{idx:02d}.jpg")
     (out_dir / "curiosidade.json").write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("[OK] Job mobile cloud pronto: roteiro + backgrounds sem humanos + Zé + balão.", flush=True)
+    print("[OK] Job mobile cloud pronto: roteiro + backgrounds + Zé + balão redondo + voz jovem.", flush=True)
 
 
 def main():
