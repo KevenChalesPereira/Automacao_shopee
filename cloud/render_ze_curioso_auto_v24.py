@@ -19,7 +19,7 @@ FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 DEFAULT_VOICE = "pt-BR-AntonioNeural"
 ROOT = Path(__file__).resolve().parents[1]
-MASCOT = ROOT / "assets" / "ze_curioso" / "ze_main.webp"
+MASCOT = ROOT / "assets" / "ze_curioso" / "ze_main.png"
 
 
 def run(cmd):
