@@ -96,7 +96,7 @@ jobs:
 
       - name: Render
         run: |
-          python3 cloud/render_ze_curioso_auto_v24.py mobile_job resultado_mobile
+          python3 cloud/render_ze_curioso_final_v8.py mobile_job resultado_mobile
 
       - name: QA
         run: |
