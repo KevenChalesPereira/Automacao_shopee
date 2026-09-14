@@ -13,71 +13,158 @@ jobs:
   voices:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, '[Teste de voz]')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - name: Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Dependências Kokoro
+      - name: Dependências Chatterbox remoto
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg espeak-ng libsndfile1
+          sudo apt-get install -y ffmpeg
           python -m pip install --upgrade pip
-          python -m pip install 'kokoro>=0.9.4' soundfile
+          python -m pip install 'gradio_client>=1.3.0'
 
-      - name: Gerar vozes brasileiras
+      - name: Gerar 3 takes Chatterbox pt-BR
         run: |
           mkdir -p resultado_voice
           python - <<'PY'
           from pathlib import Path
-          import numpy as np
-          import soundfile as sf
-          from kokoro import KPipeline
+          import shutil
+          from gradio_client import Client
 
           out = Path('resultado_voice')
-          pipeline = KPipeline(lang_code='p', device='cpu')
-
           text = (
               'Se liga nessa, curioso! Seu gato te segue até o banheiro por mais de um motivo. '
               'Curiosidade pesa bastante: você entra num lugar e ele quer conferir o que mudou. '
               'Também tem rotina. Se isso acontece sempre, ele aprende que aquele caminho faz parte do dia. '
               'E claro, ficar perto de você pode simplesmente ser companhia, hábito e atenção. '
-              'No fim, não é mistério: é curiosidade, rotina e proximidade. '
-              'Agora você sabe! Bora pra próxima com o Zé!'
+              'No fim, não é mistério: é curiosidade, rotina e proximidade. Agora você sabe!'
           )
 
-          tests = [
-              ('alex_natural', 'pm_alex', 1.00),
-              ('alex_animado', 'pm_alex', 1.10),
-              ('santa_natural', 'pm_santa', 1.00),
-              ('santa_animado', 'pm_santa', 1.10),
+          spaces = [
+              'ResembleAI/Chatterbox-Multilingual-TTS-pt-br',
+              'ResembleAI/Chatterbox-Multilingual-TTS',
           ]
 
-          for slug, voice, speed in tests:
-              chunks = []
-              for _, _, audio in pipeline(text, voice=voice, speed=speed, split_pattern=r'(?<=[.!?])\s+'):
-                  if audio is not None:
-                      chunks.append(np.asarray(audio, dtype=np.float32))
-              if not chunks:
-                  raise RuntimeError(f'Kokoro não gerou áudio para {slug}')
-              audio = np.concatenate(chunks)
-              sf.write(out / f'voz_{slug}.wav', audio, 24000)
-              print(f'[OK] {slug}: {voice} speed={speed} duração={len(audio)/24000:.2f}s')
+          client = None
+          api_name = None
+          api_spec = None
+          chosen_space = None
+
+          for space in spaces:
+              try:
+                  print(f'[>] Conectando ao Space {space}...')
+                  c = Client(space, verbose=False)
+                  info = c.view_api(all_endpoints=True, print_info=False, return_format='dict')
+                  named = info.get('named_endpoints', {})
+                  candidates = []
+                  for name, spec in named.items():
+                      params = spec.get('parameters', [])
+                      blob = ' '.join(
+                          str(p.get('label') or p.get('parameter_name') or '')
+                          for p in params
+                      ).lower()
+                      score = 0
+                      if 'text' in blob: score += 4
+                      if 'exagger' in blob: score += 3
+                      if 'temperature' in blob: score += 2
+                      if 'cfg' in blob or 'pace' in blob: score += 2
+                      if 'audio' in blob or 'reference' in blob: score += 1
+                      if 'generate' in name.lower() or 'tts' in name.lower(): score += 2
+                      candidates.append((score, name, spec))
+                  if not candidates:
+                      raise RuntimeError('Space sem endpoints nomeados')
+                  candidates.sort(reverse=True, key=lambda x: x[0])
+                  score, name, spec = candidates[0]
+                  if score < 4:
+                      raise RuntimeError(f'endpoint inadequado: {name} score={score}')
+                  client, api_name, api_spec, chosen_space = c, name, spec, space
+                  print(f'[OK] Space: {space}; endpoint: {name}; score={score}')
+                  break
+              except Exception as e:
+                  print(f'[!] Falha no Space {space}: {e}')
+
+          if client is None:
+              raise RuntimeError('Não foi possível acessar nenhum Space Chatterbox.')
+
+          def param_value(p, cfg):
+              label = str(p.get('label') or p.get('parameter_name') or '').lower()
+              if 'text' in label:
+                  return text[:295]
+              if 'language' in label or label.strip() in {'lang', 'language_id'}:
+                  return 'pt'
+              if 'reference' in label or ('audio' in label and 'output' not in label):
+                  return None
+              if 'exagger' in label:
+                  return cfg['exaggeration']
+              if 'temperature' in label or label.strip() in {'temp'}:
+                  return cfg['temperature']
+              if 'seed' in label:
+                  return cfg['seed']
+              if 'cfg' in label or 'pace' in label:
+                  return cfg['cfg']
+              if p.get('parameter_has_default'):
+                  return p.get('default')
+              return None
+
+          def find_file(obj):
+              if isinstance(obj, str):
+                  p = Path(obj)
+                  if p.exists() and p.is_file():
+                      return p
+              if isinstance(obj, dict):
+                  for key in ('path', 'name', 'value'):
+                      v = obj.get(key)
+                      if isinstance(v, str):
+                          p = Path(v)
+                          if p.exists() and p.is_file():
+                              return p
+                  for v in obj.values():
+                      p = find_file(v)
+                      if p: return p
+              if isinstance(obj, (list, tuple)):
+                  for v in obj:
+                      p = find_file(v)
+                      if p: return p
+              return None
+
+          takes = [
+              ('conversado', {'exaggeration': 0.55, 'temperature': 0.72, 'cfg': 0.34, 'seed': 41}),
+              ('curioso',    {'exaggeration': 0.78, 'temperature': 0.80, 'cfg': 0.30, 'seed': 77}),
+              ('energia',    {'exaggeration': 0.95, 'temperature': 0.88, 'cfg': 0.28, 'seed': 113}),
+          ]
+
+          params = api_spec.get('parameters', [])
+          for slug, cfg in takes:
+              args = [param_value(p, cfg) for p in params]
+              print(f'[>] Gerando {slug}: exp={cfg["exaggeration"]} temp={cfg["temperature"]} cfg={cfg["cfg"]}')
+              result = client.predict(*args, api_name=api_name)
+              src = find_file(result)
+              if src is None:
+                  raise RuntimeError(f'Retorno de áudio não reconhecido para {slug}: {result!r}')
+              dst = out / f'chatterbox_{slug}{src.suffix or ".wav"}'
+              shutil.copy2(src, dst)
+              print(f'[OK] {dst}')
 
           (out / 'README.txt').write_text(
-              'Kokoro pt-BR: compare Alex natural/animado e Santa natural/animado.\n',
+              f'Chatterbox testado via {chosen_space}.\n'
+              'conversado: mais natural; curioso: mais expressivo; energia: mais vivo.\n',
               encoding='utf-8'
           )
           PY
 
       - name: Normalizar e converter MP3
         run: |
-          for f in resultado_voice/*.wav; do
-            base="${f%.wav}"
+          shopt -s nullglob
+          for f in resultado_voice/chatterbox_*; do
+            [[ "$f" == *.mp3 ]] && continue
+            base="${f%.*}"
             ffmpeg -y -i "$f" -af 'loudnorm=I=-16:LRA=7:TP=-1.5' -c:a libmp3lame -q:a 2 "${base}.mp3"
           done
+          ls -lh resultado_voice
 
       - name: Upload
         uses: actions/upload-artifact@v4
@@ -97,6 +184,6 @@ jobs:
             const ok = '${{ job.status }}' === 'success';
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = ok
-              ? `✅ Teste Kokoro pt-BR gerado: ${runUrl}`
-              : `❌ Teste Kokoro falhou: ${runUrl}`;
+              ? `✅ Teste Chatterbox pt-BR gerado: ${runUrl}`
+              : `❌ Teste Chatterbox falhou: ${runUrl}`;
             await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
