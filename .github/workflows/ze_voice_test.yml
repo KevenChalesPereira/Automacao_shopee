@@ -13,52 +13,91 @@ jobs:
   voices:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, '[Teste de voz]')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Preparar referência nordestina
+      - name: Preparar referência nordestina autêntica
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg curl unzip
+          sudo apt-get install -y ffmpeg
           python -m pip install --upgrade pip
-          python -m pip install 'gradio_client>=1.3.0'
+          python -m pip install 'gradio_client>=1.3.0' 'datasets>=3.0.0' pyarrow
 
           mkdir -p /tmp/nordestino_ref
-          curl -L --fail --retry 3 \
-            'https://huggingface.co/datasets/frassonm/accentai_nordestino_leve/resolve/main/accentai_dataset_nordestino_01%20%281%29.zip' \
-            -o /tmp/nordestino_ref.zip
-          unzip -q /tmp/nordestino_ref.zip -d /tmp/nordestino_ref
-
           python - <<'PY'
           from pathlib import Path
+          from datasets import load_dataset, Audio
           import subprocess
 
-          root = Path('/tmp/nordestino_ref')
-          audio = []
-          for p in root.rglob('*'):
-              if p.suffix.lower() not in {'.mp3', '.wav', '.flac', '.m4a', '.ogg'}:
+          # Mesmo locutor masculino, 30 e poucos anos, marcado explicitamente como "Nordestino"
+          # no Common Voice. Usamos vários trechos do MESMO locutor para dar ao clone
+          # uma referência mais longa e preservar o sotaque em vez de misturar vozes.
+          TARGET = '63850bd9f5d888281e47a93004a0102ecb6716fe914b905b4d3cde0d89eb248ebdfdc7e9499e1c170495e3ddfee31ffd72df908f05ccd6748acc2ad8a4422817'
+          out = Path('/tmp/nordestino_ref')
+
+          ds = load_dataset('remynd/common_voice_pt_pt', split='train')
+          ds = ds.cast_column('audio', Audio(decode=False))
+
+          rows = []
+          for row in ds:
+              if row.get('client_id') != TARGET:
                   continue
-              try:
-                  out = subprocess.check_output([
-                      'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
-                      '-of', 'default=nw=1:nk=1', str(p)
-                  ], text=True).strip()
-                  dur = float(out)
-                  audio.append((dur, p))
-              except Exception:
-                  pass
+              accent = str(row.get('accents') or '').lower()
+              if 'nordestino' not in accent:
+                  continue
+              dur_ms = int(row.get('duration[ms]') or 0)
+              if dur_ms < 1800:
+                  continue
+              rows.append((dur_ms, row))
 
-          if not audio:
-              raise SystemExit('Nenhum áudio válido encontrado no dataset nordestino.')
+          if not rows:
+              raise SystemExit('Nenhum trecho do locutor nordestino foi encontrado.')
 
-          audio.sort(reverse=True, key=lambda x: x[0])
-          dur, src = audio[0]
-          Path('/tmp/nordestino_ref_path.txt').write_text(str(src), encoding='utf-8')
-          print(f'[OK] Referência escolhida: {src} ({dur:.2f}s)')
+          # Prioriza frases mais longas. Meta: ~16–22 s de referência.
+          rows.sort(reverse=True, key=lambda x: x[0])
+          chosen = []
+          total_ms = 0
+          for dur_ms, row in rows:
+              chosen.append((dur_ms, row))
+              total_ms += dur_ms
+              if total_ms >= 18000 or len(chosen) >= 5:
+                  break
+
+          clip_paths = []
+          for i, (dur_ms, row) in enumerate(chosen, 1):
+              audio = row['audio']
+              data = audio.get('bytes')
+              suffix = Path(audio.get('path') or '').suffix or '.mp3'
+              p = out / f'clip_{i:02d}{suffix}'
+              if data is not None:
+                  p.write_bytes(data)
+              elif audio.get('path'):
+                  src = Path(audio['path'])
+                  p.write_bytes(src.read_bytes())
+              else:
+                  raise RuntimeError('Registro de áudio sem bytes/path.')
+              clip_paths.append(p)
+              print(f"[REF] {dur_ms/1000:.2f}s | {row.get('sentence')}")
+
+          concat = out / 'concat.txt'
+          concat.write_text(''.join(f"file '{p.as_posix()}'\n" for p in clip_paths), encoding='utf-8')
+          ref = out / 'nordestino_male_reference.wav'
+          subprocess.run([
+              'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', str(concat),
+              '-ac', '1', '-ar', '24000', '-af', 'loudnorm=I=-18:LRA=7:TP=-2',
+              str(ref)
+          ], check=True)
+
+          Path('/tmp/nordestino_ref_path.txt').write_text(str(ref), encoding='utf-8')
+          Path('/tmp/nordestino_ref_info.txt').write_text(
+              f'Common Voice speaker marcado como Nordestino; {len(chosen)} trechos; {total_ms/1000:.2f}s.\n',
+              encoding='utf-8'
+          )
+          print(f'[OK] Referência final: {ref} ({total_ms/1000:.2f}s)')
           PY
 
       - name: Gerar 3 takes nordestinos Chatterbox
@@ -71,10 +110,10 @@ jobs:
 
           out = Path('resultado_voice')
           text = (
-              'Se liga nessa! Já reparou que seu gato te segue até o banheiro? '
-              'Não é só curiosidade. Ele conhece a sua rotina, quer saber o que você está fazendo '
-              'e, muitas vezes, só quer ficar por perto. Para ele, te acompanhar pela casa faz parte do dia. '
-              'Engraçado, né? Agora você sabe!'
+              'Rapaz, se liga nessa. Tu já reparou que teu gato te segue até o banheiro? '
+              'Pois é, não é só curiosidade. Ele conhece tua rotina, quer saber o que tu tá fazendo '
+              'e muitas vezes só quer ficar por perto. Pra ele, te acompanhar pela casa já faz parte do dia. '
+              'Massa, né? Agora tu sabe!'
           )
 
           ref_path = Path('/tmp/nordestino_ref_path.txt').read_text(encoding='utf-8').strip()
@@ -100,11 +139,11 @@ jobs:
                       if 'exagger' in blob: score += 3
                       if 'temperature' in blob: score += 2
                       if 'cfg' in blob or 'pace' in blob: score += 2
-                      if 'audio' in blob or 'reference' in blob: score += 3
+                      if 'audio' in blob or 'reference' in blob: score += 4
                       if 'generate' in name.lower() or 'tts' in name.lower(): score += 2
                       candidates.append((score, name, spec))
                   candidates.sort(reverse=True, key=lambda x: x[0])
-                  if not candidates or candidates[0][0] < 6:
+                  if not candidates or candidates[0][0] < 7:
                       raise RuntimeError('nenhum endpoint TTS adequado')
                   _, api_name, api_spec = candidates[0]
                   client, chosen_space = c, space
@@ -156,9 +195,9 @@ jobs:
               return None
 
           takes = [
-              ('nordeste_natural', {'exaggeration': 0.46, 'temperature': 0.68, 'cfg': 0.46, 'seed': 19}),
-              ('nordeste_contador', {'exaggeration': 0.68, 'temperature': 0.75, 'cfg': 0.39, 'seed': 71}),
-              ('nordeste_energia', {'exaggeration': 0.84, 'temperature': 0.81, 'cfg': 0.34, 'seed': 127}),
+              ('nordeste_natural', {'exaggeration': 0.42, 'temperature': 0.66, 'cfg': 0.50, 'seed': 23}),
+              ('nordeste_contador', {'exaggeration': 0.62, 'temperature': 0.74, 'cfg': 0.42, 'seed': 79}),
+              ('nordeste_arretado', {'exaggeration': 0.80, 'temperature': 0.82, 'cfg': 0.36, 'seed': 131}),
           ]
 
           params = api_spec.get('parameters', [])
@@ -174,10 +213,11 @@ jobs:
               shutil.copy2(src, dst)
               print(f'[OK] {dst}')
 
+          info = Path('/tmp/nordestino_ref_info.txt').read_text(encoding='utf-8')
           (out / 'README.txt').write_text(
-              f'Chatterbox via {chosen_space}, condicionado por referência com sotaque nordestino leve.\n'
-              f'Referência: dataset frassonm/accentai_nordestino_leve.\n'
-              'natural = conversa; contador = contador de causos; energia = mais vivo.\n',
+              f'Chatterbox via {chosen_space}.\n'
+              f'Referência: {info}'
+              'natural = conversa; contador = contador de causos; arretado = mais presença e energia.\n',
               encoding='utf-8'
           )
           PY
@@ -210,6 +250,6 @@ jobs:
             const ok = '${{ job.status }}' === 'success';
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = ok
-              ? `✅ Teste de voz nordestina do Zé gerado: ${runUrl}`
+              ? `✅ Teste de voz nordestina autêntica do Zé gerado: ${runUrl}`
               : `❌ Teste de voz nordestina falhou: ${runUrl}`;
             await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
