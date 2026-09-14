@@ -16,9 +16,10 @@ from pathlib import Path
 import ze_curioso_v24 as core
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+PRIMARY_MODEL = os.getenv("GROQ_SCRIPT_MODEL", "openai/gpt-oss-120b")
+GROQ_MODELS = [PRIMARY_MODEL, "openai/gpt-oss-20b"]
 CF_MODEL = "@cf/black-forest-labs/flux-1-schnell"
-VOICE = "pt-BR-JulioNeural"
+VOICE = "supertonic:M4"
 OPENING = "Se liga nessa, curioso:"
 CLOSING = "Agora você sabe. Bora pra próxima com o Zé!"
 
@@ -46,21 +47,29 @@ def request_json(url, payload, headers, timeout=180):
         return exc.code, data
 
 
-def groq_json(api_key: str, prompt: str):
+def groq_json(api_key: str, prompt: str, temperature=0.40):
     headers = {"Authorization": f"Bearer {api_key}"}
-    payload = {
-        "model": GROQ_MODEL,
-        "temperature": 0.46,
-        "max_completion_tokens": 7000,
-        "reasoning_effort": "low",
-        "include_reasoning": False,
-        "response_format": {"type": "json_object"},
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    status, data = request_json(GROQ_URL, payload, headers, timeout=180)
-    if status != 200:
-        raise RuntimeError(f"Groq HTTP {status}: {str(data)[:800]}")
-    return data
+    errors = []
+    tried = []
+    for model in GROQ_MODELS:
+        if model in tried:
+            continue
+        tried.append(model)
+        payload = {
+            "model": model,
+            "temperature": temperature,
+            "max_completion_tokens": 7000,
+            "reasoning_effort": "low",
+            "include_reasoning": False,
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        status, data = request_json(GROQ_URL, payload, headers, timeout=180)
+        if status == 200:
+            print(f"[OK] Groq modelo: {model}", flush=True)
+            return data
+        errors.append(f"{model}: HTTP {status} {str(data)[:260]}")
+    raise RuntimeError("Groq falhou em todos os modelos: " + " | ".join(errors))
 
 
 def pick(obj: dict, *keys):
@@ -101,6 +110,43 @@ IMPORTANT COMPOSITION RULES:
 
 Create a literal, easy-to-understand scene that directly illustrates the narration. Avoid unrelated metaphors, surrealism, fantasy or random scenery unless the narration explicitly requires them. Use a polished cinematic curiosity-channel look, strong depth, believable lighting and high contrast. Scene {index + 1} of 5. Title idea: {title}.
 """)[:2000]
+
+
+def polish_result(api_key: str, topic: str, result: dict) -> dict:
+    candidate = json.dumps(result, ensure_ascii=False)
+    prompt = f"""
+Você é o editor final do canal Zé Curioso. Corrija o JSON abaixo e devolva SOMENTE JSON válido.
+Tema: {topic}
+
+JSON candidato:
+{candidate}
+
+REGRAS DO EDITOR:
+- mantenha exatamente 5 cenas e os mesmos nomes de campos;
+- reescreva as falas para ficarem naturais, curtas, corretas e interessantes;
+- 55 a 78 palavras no total, incluindo bordões;
+- cada cena precisa acrescentar informação nova;
+- não use listas aleatórias de cheiros, objetos, lugares ou adjetivos só para preencher espaço;
+- responda de verdade à pergunta do tema;
+- não invente estudos, estatísticas, instintos, explicações biológicas ou certezas;
+- quando houver várias causas plausíveis, diga isso de forma simples;
+- para comportamento animal, prefira explicações plausíveis como rotina, curiosidade, proximidade social, território/acesso e hábito quando forem pertinentes; não diga que o animal 'protege o dono' como fato;
+- preserve exatamente o bordão inicial "{OPENING}" no começo da primeira fala;
+- preserve exatamente o bordão final "{CLOSING}" no fim da quinta fala;
+- "roteiro" deve ser exatamente a concatenação das 5 falas;
+- background_prompt deve continuar literal, visual e sem pessoas, mascote ou texto.
+""".strip()
+    try:
+        data = groq_json(api_key, prompt, temperature=0.22)
+        text = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+        polished = core.extract_json_object(text)
+        scenes = polished.get("cenas") if isinstance(polished, dict) else None
+        if isinstance(scenes, list) and len(scenes) == 5:
+            print("[OK] Segunda passada de roteiro aplicada.", flush=True)
+            return polished
+    except Exception as exc:
+        print(f"[!] Editor final falhou; usando primeira versão: {exc}", flush=True)
+    return result
 
 
 def normalize_job(result: dict, topic: str) -> dict:
@@ -146,7 +192,7 @@ def normalize_job(result: dict, topic: str) -> dict:
         raise RuntimeError(f"Roteiro curto demais: {wc} palavras.")
 
     return {
-        "versao": "24.mobile.8",
+        "versao": "24.mobile.9",
         "tema": clean(pick(result, "tema", "topic")) or clean(topic),
         "titulo": title[:110],
         "hook": hook[:250],
@@ -196,20 +242,19 @@ O Zé Curioso já existe como PNG e será colocado depois. NÃO descreva nenhum 
 IDENTIDADE DO CANAL:
 - A primeira fala começa naturalmente com: "{OPENING}"
 - A última fala termina naturalmente com: "{CLOSING}"
-- Chame o espectador de "curioso" no máximo uma vez além do bordão.
 - O bordão é assinatura, não introdução longa.
 
 REGRAS DE RETENÇÃO E ROTEIRO:
 - exatamente 5 cenas, todas com "texto";
-- o primeiro fato/pergunta forte precisa aparecer já na primeira frase;
+- o primeiro fato/pergunta forte aparece já na primeira frase;
 - 7 a 13 palavras de conteúdo por cena, antes dos bordões;
 - alvo de 55 a 78 palavras no vídeo inteiro, incluindo bordões;
-- cada cena deve avançar a resposta; zero repetição e zero enchimento;
+- cada cena avança a resposta; zero repetição e zero enchimento;
 - frases curtas, pontuação natural e pausas que ajudem a narração;
 - linguagem jovem, conversada, curiosa e humana; nunca texto escolar;
-- use no máximo UMA microvirada do tipo "só que tem um detalhe" ou "e aqui fica interessante";
+- no máximo UMA microvirada do tipo "só que tem um detalhe";
+- não use listas aleatórias de palavras para preencher ritmo;
 - não use explicações absolutas quando houver várias causas plausíveis;
-- prefira "pode", "costuma", "uma explicação comum" quando a ciência/comportamento não for absoluto;
 - não invente estudos, números, estatísticas, instintos ou causas;
 - feche a resposta antes do bordão final;
 - "roteiro" deve ser exatamente a concatenação das 5 falas;
@@ -221,11 +266,12 @@ REGRAS DE RETENÇÃO E ROTEIRO:
 """.strip()
 
     print("[>] Gerando roteiro e direção visual no Groq...", flush=True)
-    data = groq_json(api_key, prompt)
+    data = groq_json(api_key, prompt, temperature=0.38)
     text = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
     result = core.extract_json_object(text)
     if not result:
         raise RuntimeError("Groq respondeu, mas não retornou JSON utilizável.")
+    result = polish_result(api_key, topic, result)
     return normalize_job(result, topic)
 
 
@@ -264,7 +310,7 @@ def build_job(topic: str, out_dir: Path):
         print(f"[>] Gerando cena IA {idx}/{len(scenes)}...", flush=True)
         generate_background(scene["background_prompt"], out_dir / f"scene_{idx:02d}.jpg")
     (out_dir / "curiosidade.json").write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
-    print("[OK] Job mobile cloud pronto: roteiro refinado + backgrounds + Zé + voz jovem.", flush=True)
+    print("[OK] Job mobile cloud pronto: roteiro revisado + backgrounds + Zé + voz Supertonic.", flush=True)
 
 
 def main():
