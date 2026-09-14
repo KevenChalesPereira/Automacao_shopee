@@ -33,9 +33,6 @@ jobs:
           from datasets import load_dataset, Audio
           import subprocess
 
-          # Mesmo locutor masculino, 30 e poucos anos, marcado explicitamente como "Nordestino"
-          # no Common Voice. Usamos vários trechos do MESMO locutor para dar ao clone
-          # uma referência mais longa e preservar o sotaque em vez de misturar vozes.
           TARGET = '63850bd9f5d888281e47a93004a0102ecb6716fe914b905b4d3cde0d89eb248ebdfdc7e9499e1c170495e3ddfee31ffd72df908f05ccd6748acc2ad8a4422817'
           out = Path('/tmp/nordestino_ref')
 
@@ -57,7 +54,6 @@ jobs:
           if not rows:
               raise SystemExit('Nenhum trecho do locutor nordestino foi encontrado.')
 
-          # Prioriza frases mais longas. Meta: ~16–22 s de referência.
           rows.sort(reverse=True, key=lambda x: x[0])
           chosen = []
           total_ms = 0
@@ -76,8 +72,7 @@ jobs:
               if data is not None:
                   p.write_bytes(data)
               elif audio.get('path'):
-                  src = Path(audio['path'])
-                  p.write_bytes(src.read_bytes())
+                  p.write_bytes(Path(audio['path']).read_bytes())
               else:
                   raise RuntimeError('Registro de áudio sem bytes/path.')
               clip_paths.append(p)
@@ -88,7 +83,8 @@ jobs:
           ref = out / 'nordestino_male_reference.wav'
           subprocess.run([
               'ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', str(concat),
-              '-ac', '1', '-ar', '24000', '-af', 'loudnorm=I=-18:LRA=7:TP=-2',
+              '-ac', '1', '-ar', '24000',
+              '-af', 'highpass=f=70,equalizer=f=190:t=q:w=1.0:g=-1.2,loudnorm=I=-18:LRA=7:TP=-2',
               str(ref)
           ], check=True)
 
@@ -100,7 +96,7 @@ jobs:
           print(f'[OK] Referência final: {ref} ({total_ms/1000:.2f}s)')
           PY
 
-      - name: Gerar 3 takes nordestinos Chatterbox
+      - name: Gerar contador refinado no Chatterbox
         run: |
           mkdir -p resultado_voice
           python - <<'PY'
@@ -110,9 +106,9 @@ jobs:
 
           out = Path('resultado_voice')
           text = (
-              'Rapaz, se liga nessa. Tu já reparou que teu gato te segue até o banheiro? '
-              'Pois é, não é só curiosidade. Ele conhece tua rotina, quer saber o que tu tá fazendo '
-              'e muitas vezes só quer ficar por perto. Pra ele, te acompanhar pela casa já faz parte do dia. '
+              'Rapaz... se liga nessa! Tu já reparou que teu gato te segue até o banheiro? '
+              'Pois é. Não é só curiosidade. Ele conhece tua rotina, quer saber o que tu tá fazendo '
+              'e, muitas vezes, só quer ficar por perto. Pra ele, te acompanhar pela casa já faz parte do dia. '
               'Massa, né? Agora tu sabe!'
           )
 
@@ -195,9 +191,9 @@ jobs:
               return None
 
           takes = [
-              ('nordeste_natural', {'exaggeration': 0.42, 'temperature': 0.66, 'cfg': 0.50, 'seed': 23}),
-              ('nordeste_contador', {'exaggeration': 0.62, 'temperature': 0.74, 'cfg': 0.42, 'seed': 79}),
-              ('nordeste_arretado', {'exaggeration': 0.80, 'temperature': 0.82, 'cfg': 0.36, 'seed': 131}),
+              ('contador_suave_raw', {'exaggeration': 0.54, 'temperature': 0.66, 'cfg': 0.48, 'seed': 79}),
+              ('contador_vivo_raw', {'exaggeration': 0.59, 'temperature': 0.69, 'cfg': 0.46, 'seed': 83}),
+              ('contador_animado_raw', {'exaggeration': 0.64, 'temperature': 0.71, 'cfg': 0.44, 'seed': 91}),
           ]
 
           params = api_spec.get('parameters', [])
@@ -217,19 +213,35 @@ jobs:
           (out / 'README.txt').write_text(
               f'Chatterbox via {chosen_space}.\n'
               f'Referência: {info}'
-              'natural = conversa; contador = contador de causos; arretado = mais presença e energia.\n',
+              'Três refinamentos do take contador; pitch levemente elevado no pós para tirar rouquidão sem descaracterizar o sotaque.\n',
               encoding='utf-8'
           )
           PY
 
-      - name: Normalizar e converter MP3
+      - name: Clarear timbre e subir pitch com leveza
         run: |
           shopt -s nullglob
-          for f in resultado_voice/nordeste_*; do
-            [[ "$f" == *.mp3 ]] && continue
-            base="${f%.*}"
-            ffmpeg -y -i "$f" -af 'loudnorm=I=-16:LRA=7:TP=-1.5' -c:a libmp3lame -q:a 2 "${base}.mp3"
-          done
+
+          process_take() {
+            slug="$1"
+            rate="$2"
+            tempo="$3"
+            input="$(ls resultado_voice/${slug}_raw.* | head -n 1)"
+            if [[ -z "$input" ]]; then
+              echo "Arquivo raw não encontrado para $slug" >&2
+              exit 1
+            fi
+            ffmpeg -y -i "$input" \
+              -af "aresample=48000,asetrate=${rate},aresample=48000,atempo=${tempo},highpass=f=82,equalizer=f=180:t=q:w=1.0:g=-2.0,equalizer=f=3200:t=q:w=1.1:g=1.4,equalizer=f=6200:t=q:w=1.0:g=0.8,loudnorm=I=-16:LRA=6:TP=-1.5" \
+              -c:a libmp3lame -q:a 2 "resultado_voice/${slug}.mp3"
+          }
+
+          # +1.5%, +2.0% e +2.5% de pitch, mantendo a duração praticamente igual.
+          process_take contador_suave 48720 0.98522
+          process_take contador_vivo 48960 0.98039
+          process_take contador_animado 49200 0.97561
+
+          rm -f resultado_voice/*_raw.*
           ls -lh resultado_voice
 
       - name: Upload
@@ -250,6 +262,6 @@ jobs:
             const ok = '${{ job.status }}' === 'success';
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = ok
-              ? `✅ Teste de voz nordestina autêntica do Zé gerado: ${runUrl}`
-              : `❌ Teste de voz nordestina falhou: ${runUrl}`;
+              ? `✅ Contador nordestino refinado do Zé gerado: ${runUrl}`
+              : `❌ Refinamento da voz do Zé falhou: ${runUrl}`;
             await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
