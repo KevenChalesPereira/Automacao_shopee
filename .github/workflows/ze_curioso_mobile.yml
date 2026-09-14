@@ -28,11 +28,17 @@ jobs:
         with:
           ref: ze-curioso-v24
 
+      - name: Cache da voz Supertonic
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/supertonic3
+          key: supertonic3-v1-${{ runner.os }}
+
       - name: Dependências
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          python3 -m pip install --break-system-packages edge-tts pillow
+          python3 -m pip install --break-system-packages edge-tts pillow supertonic
 
       - name: Extrair tema
         env:
