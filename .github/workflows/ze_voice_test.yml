@@ -20,18 +20,48 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Dependências Chatterbox remoto
+      - name: Preparar referência nordestina
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg curl
+          sudo apt-get install -y ffmpeg curl unzip
           python -m pip install --upgrade pip
           python -m pip install 'gradio_client>=1.3.0'
-          curl -L --fail --retry 3 \
-            'https://storage.googleapis.com/chatterbox-demo-samples/mtl_prompts/pt_m1.flac' \
-            -o /tmp/ze_pt_ref.flac
-          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 /tmp/ze_pt_ref.flac
 
-      - name: Gerar 3 takes Chatterbox pt-BR
+          mkdir -p /tmp/nordestino_ref
+          curl -L --fail --retry 3 \
+            'https://huggingface.co/datasets/frassonm/accentai_nordestino_leve/resolve/main/accentai_dataset_nordestino_01%20%281%29.zip' \
+            -o /tmp/nordestino_ref.zip
+          unzip -q /tmp/nordestino_ref.zip -d /tmp/nordestino_ref
+
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          root = Path('/tmp/nordestino_ref')
+          audio = []
+          for p in root.rglob('*'):
+              if p.suffix.lower() not in {'.mp3', '.wav', '.flac', '.m4a', '.ogg'}:
+                  continue
+              try:
+                  out = subprocess.check_output([
+                      'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+                      '-of', 'default=nw=1:nk=1', str(p)
+                  ], text=True).strip()
+                  dur = float(out)
+                  audio.append((dur, p))
+              except Exception:
+                  pass
+
+          if not audio:
+              raise SystemExit('Nenhum áudio válido encontrado no dataset nordestino.')
+
+          audio.sort(reverse=True, key=lambda x: x[0])
+          dur, src = audio[0]
+          Path('/tmp/nordestino_ref_path.txt').write_text(str(src), encoding='utf-8')
+          print(f'[OK] Referência escolhida: {src} ({dur:.2f}s)')
+          PY
+
+      - name: Gerar 3 takes nordestinos Chatterbox
         run: |
           mkdir -p resultado_voice
           python - <<'PY'
@@ -46,7 +76,9 @@ jobs:
               'e, muitas vezes, só quer ficar por perto. Para ele, te acompanhar pela casa faz parte do dia. '
               'Engraçado, né? Agora você sabe!'
           )
-          reference = handle_file('/tmp/ze_pt_ref.flac')
+
+          ref_path = Path('/tmp/nordestino_ref_path.txt').read_text(encoding='utf-8').strip()
+          reference = handle_file(ref_path)
 
           spaces = [
               'ResembleAI/Chatterbox-Multilingual-TTS-pt-br',
@@ -68,11 +100,11 @@ jobs:
                       if 'exagger' in blob: score += 3
                       if 'temperature' in blob: score += 2
                       if 'cfg' in blob or 'pace' in blob: score += 2
-                      if 'audio' in blob or 'reference' in blob: score += 2
+                      if 'audio' in blob or 'reference' in blob: score += 3
                       if 'generate' in name.lower() or 'tts' in name.lower(): score += 2
                       candidates.append((score, name, spec))
                   candidates.sort(reverse=True, key=lambda x: x[0])
-                  if not candidates or candidates[0][0] < 5:
+                  if not candidates or candidates[0][0] < 6:
                       raise RuntimeError('nenhum endpoint TTS adequado')
                   _, api_name, api_spec = candidates[0]
                   client, chosen_space = c, space
@@ -124,9 +156,9 @@ jobs:
               return None
 
           takes = [
-              ('conversado', {'exaggeration': 0.50, 'temperature': 0.68, 'cfg': 0.45, 'seed': 41}),
-              ('curioso',    {'exaggeration': 0.72, 'temperature': 0.76, 'cfg': 0.38, 'seed': 77}),
-              ('energia',    {'exaggeration': 0.90, 'temperature': 0.82, 'cfg': 0.34, 'seed': 113}),
+              ('nordeste_natural', {'exaggeration': 0.46, 'temperature': 0.68, 'cfg': 0.46, 'seed': 19}),
+              ('nordeste_contador', {'exaggeration': 0.68, 'temperature': 0.75, 'cfg': 0.39, 'seed': 71}),
+              ('nordeste_energia', {'exaggeration': 0.84, 'temperature': 0.81, 'cfg': 0.34, 'seed': 127}),
           ]
 
           params = api_spec.get('parameters', [])
@@ -138,13 +170,14 @@ jobs:
               src = find_file(result)
               if src is None:
                   raise RuntimeError(f'Retorno de áudio não reconhecido para {slug}: {result!r}')
-              dst = out / f'chatterbox_{slug}{src.suffix or ".wav"}'
+              dst = out / f'{slug}{src.suffix or ".wav"}'
               shutil.copy2(src, dst)
               print(f'[OK] {dst}')
 
           (out / 'README.txt').write_text(
-              f'Chatterbox testado via {chosen_space}, com referência humana oficial em português.\n'
-              'conversado = natural; curioso = expressivo; energia = mais vivo.\n',
+              f'Chatterbox via {chosen_space}, condicionado por referência com sotaque nordestino leve.\n'
+              f'Referência: dataset frassonm/accentai_nordestino_leve.\n'
+              'natural = conversa; contador = contador de causos; energia = mais vivo.\n',
               encoding='utf-8'
           )
           PY
@@ -152,7 +185,7 @@ jobs:
       - name: Normalizar e converter MP3
         run: |
           shopt -s nullglob
-          for f in resultado_voice/chatterbox_*; do
+          for f in resultado_voice/nordeste_*; do
             [[ "$f" == *.mp3 ]] && continue
             base="${f%.*}"
             ffmpeg -y -i "$f" -af 'loudnorm=I=-16:LRA=7:TP=-1.5' -c:a libmp3lame -q:a 2 "${base}.mp3"
@@ -177,6 +210,6 @@ jobs:
             const ok = '${{ job.status }}' === 'success';
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = ok
-              ? `✅ Teste Chatterbox pt-BR gerado: ${runUrl}`
-              : `❌ Teste Chatterbox falhou: ${runUrl}`;
+              ? `✅ Teste de voz nordestina do Zé gerado: ${runUrl}`
+              : `❌ Teste de voz nordestina falhou: ${runUrl}`;
             await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
