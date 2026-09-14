@@ -20,6 +20,9 @@ DEFAULT_VOICE = "pt-BR-AntonioNeural"
 ROOT = Path(__file__).resolve().parents[1]
 MASCOT = ROOT / "assets" / "ze_curioso" / "ze_main.png"
 
+# Zé troca de lado só algumas vezes; não se move dentro da cena.
+SIDES = ["left", "left", "right", "right", "left"]
+
 
 def run(cmd):
     print("[>] " + " ".join(str(x) for x in cmd), flush=True)
@@ -32,13 +35,6 @@ def run(cmd):
 
 def clean(v):
     return re.sub(r"\s+", " ", str(v or "")).strip()
-
-
-def font(size):
-    try:
-        return ImageFont.truetype(FONT_BOLD, size)
-    except Exception:
-        return ImageFont.load_default()
 
 
 def ffprobe_duration(path):
@@ -57,53 +53,75 @@ def ass_time(sec):
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
-def split_caption(text, max_words=7):
+def split_caption(text, max_words=4):
     words = clean(text).split()
+    return [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)]
+
+
+def bubble_geometry(index):
+    side = SIDES[index % len(SIDES)]
+    if side == "left":
+        return {
+            "side": side,
+            "mascot_x": -30,
+            "bubble": (430, 1040, 1020, 1250),
+            "text_pos": (725, 1145),
+            "tail": [(450, 1185), (344, 1240), (435, 1125)],
+        }
+    return {
+        "side": side,
+        "mascot_x": 565,
+        "bubble": (60, 1040, 650, 1250),
+        "text_pos": (355, 1145),
+        "tail": [(630, 1185), (738, 1240), (645, 1125)],
+    }
+
+
+def escape_ass(text):
+    return clean(text).replace("{", "(").replace("}", ")")
+
+
+def highlight_chunk(chunk):
+    words = escape_ass(chunk).split()
     if not words:
-        return []
-    chunks = []
-    for i in range(0, len(words), max_words):
-        chunks.append(" ".join(words[i:i + max_words]))
-    return chunks
-
-
-def wrap_ass(text, max_chars=20):
-    words = clean(text).split()
-    lines, cur = [], []
-    for word in words:
-        trial = " ".join(cur + [word])
-        if len(trial) <= max_chars:
-            cur.append(word)
+        return ""
+    # Destaca a palavra visualmente mais forte sem depender de IA extra.
+    candidates = [(len(re.sub(r"[^A-Za-zÀ-ÿ0-9]", "", w)), i) for i, w in enumerate(words)]
+    _, hot = max(candidates, default=(0, 0))
+    out = []
+    for i, word in enumerate(words):
+        if i == hot:
+            out.append(r"{\c&H0000D7FF&}" + word + r"{\c&H00FFFFFF&}")
         else:
-            if cur:
-                lines.append(" ".join(cur))
-            cur = [word]
-    if cur:
-        lines.append(" ".join(cur))
-    return r"\N".join(lines[:3])
+            out.append(word)
+    # 4 palavras normalmente cabem em 1–2 linhas; quebra no meio para leitura rápida.
+    if len(out) >= 4:
+        return " ".join(out[:2]) + r"\N" + " ".join(out[2:])
+    if len(out) == 3:
+        return " ".join(out[:2]) + r"\N" + out[2]
+    return " ".join(out)
 
 
 def make_ass(scenes, durations, path):
-    header = """[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Bubble,DejaVu Sans,46,&H00141414,&H00141414,&H00FFFFFF,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"""
+    header = """[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Bubble,DejaVu Sans,47,&H00FFFFFF,&H0000D7FF,&H00101010,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,0,0,0,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"""
     lines = [header]
     t = 0.0
-    for scene, dur in zip(scenes, durations):
-        chunks = split_caption(scene.get("texto") or scene.get("titulo"), 7)
+    for scene_index, (scene, dur) in enumerate(zip(scenes, durations)):
+        chunks = split_caption(scene.get("texto") or scene.get("titulo"), 4)
         if not chunks:
             t += dur
             continue
         weights = [max(1, len(c.split())) for c in chunks]
         total = sum(weights)
         local = t
+        x, y = bubble_geometry(scene_index)["text_pos"]
         for idx, (chunk, weight) in enumerate(zip(chunks, weights)):
             seg = dur * weight / total
             end = t + dur if idx == len(chunks) - 1 else local + seg
-            text = wrap_ass(chunk, 20).replace("{", "(").replace("}", ")")
-            # Texto dentro do balão, ao lado da boca do Zé.
-            lines.append(
-                f"Dialogue: 0,{ass_time(local)},{ass_time(end)},Bubble,,0,0,0,,"
-                f"{{\\an5\\pos(745,985)\\fad(80,80)}}{text}\n"
-            )
+            text = highlight_chunk(chunk)
+            # Pop curto estilo TikTok; texto troca rápido dentro do mesmo balão.
+            tags = rf"{{\an5\pos({x},{y})\fscx82\fscy82\t(0,120,\fscx100\fscy100)\fad(45,45)}}"
+            lines.append(f"Dialogue: 0,{ass_time(local)},{ass_time(end)},Bubble,,0,0,0,,{tags}{text}\n")
             local = end
         t += dur
     path.write_text("".join(lines), encoding="utf-8")
@@ -115,57 +133,63 @@ def cover(path):
 
 
 def shade_background(img):
+    # Só um leve degradê inferior: o background precisa continuar aparecendo.
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(overlay, "RGBA")
-    d.rectangle((0, 0, W, 230), fill=(0, 0, 0, 42))
-    d.rectangle((0, 1450, W, H), fill=(0, 0, 0, 48))
+    d.rectangle((0, 1510, W, H), fill=(0, 0, 0, 30))
     return Image.alpha_composite(img, overlay)
 
 
-def paste_mascot(base):
+def paste_mascot(base, index):
     if not MASCOT.is_file():
         raise RuntimeError(f"Mascote final ausente: {MASCOT}")
 
+    geom = bubble_geometry(index)
     ze = Image.open(MASCOT).convert("RGBA")
-    target_h = 850
+    target_h = 630
     target_w = max(1, round(ze.width * target_h / ze.height))
     ze = ze.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
-    # Posição fixa: facilita identidade visual e balão de fala.
-    x = -42
-    y = H - target_h - 105
+    if geom["side"] == "right":
+        ze = ImageOps.mirror(ze)
+    x = geom["mascot_x"]
+    y = H - target_h - 70
 
     alpha = ze.getchannel("A")
-    shadow_alpha = alpha.filter(ImageFilter.GaussianBlur(18))
-    shadow = Image.new("RGBA", ze.size, (0, 0, 0, 110))
+    shadow_alpha = alpha.filter(ImageFilter.GaussianBlur(14))
+    shadow = Image.new("RGBA", ze.size, (0, 0, 0, 92))
     shadow.putalpha(shadow_alpha)
-    base.alpha_composite(shadow, (x + 18, y + 24))
+    base.alpha_composite(shadow, (x + 12, y + 16))
     base.alpha_composite(ze, (x, y))
 
 
-def draw_speech_bubble(img):
+def draw_speech_bubble(img, index):
+    geom = bubble_geometry(index)
     d = ImageDraw.Draw(img, "RGBA")
-    box = (430, 760, 1030, 1205)
-    # sombra
-    d.rounded_rectangle((442, 774, 1042, 1219), radius=58, fill=(0, 0, 0, 92))
-    # balão
-    d.rounded_rectangle(box, radius=58, fill=(255, 255, 255, 242), outline=(20, 20, 20, 220), width=5)
-    # cauda apontando para a boca do Zé
-    d.polygon([(470, 1090), (368, 1135), (447, 1015)], fill=(255, 255, 255, 242))
-    d.line([(470, 1090), (368, 1135), (447, 1015)], fill=(20, 20, 20, 220), width=5, joint="curve")
-    # ícone de conversa (três pontos) para reforçar visualmente o 💬
-    for cx in (486, 520, 554):
-        d.ellipse((cx - 8, 805 - 8, cx + 8, 805 + 8), fill=(70, 125, 190, 255))
+    x1, y1, x2, y2 = geom["bubble"]
+
+    # Balão menor, escuro/translúcido, para não esconder o background.
+    d.rounded_rectangle((x1 + 8, y1 + 10, x2 + 8, y2 + 10), radius=38, fill=(0, 0, 0, 70))
+    d.rounded_rectangle((x1, y1, x2, y2), radius=38, fill=(18, 18, 18, 205), outline=(255, 255, 255, 215), width=3)
+    d.polygon(geom["tail"], fill=(18, 18, 18, 205))
+    d.line(geom["tail"], fill=(255, 255, 255, 215), width=3, joint="curve")
+
+    # Três pontinhos pequenos lembrando 💬 sem ocupar espaço.
+    dot_y = y1 + 28
+    dot_start = x1 + 34 if geom["side"] == "left" else x2 - 82
+    for i in range(3):
+        cx = dot_start + i * 20
+        d.ellipse((cx - 4, dot_y - 4, cx + 4, dot_y + 4), fill=(255, 215, 0, 230))
 
 
-def draw_scene(job, scene, index, total, job_dir, destination):
+def draw_scene(scene, index, job_dir, destination):
     bg = job_dir / f"scene_{index+1:02d}.jpg"
     if not bg.is_file():
         raise RuntimeError(f"Background IA ausente: {bg.name}")
 
     img = shade_background(cover(bg))
-    paste_mascot(img)
-    draw_speech_bubble(img)
+    paste_mascot(img, index)
+    draw_speech_bubble(img, index)
     img.convert("RGB").save(destination, quality=94)
 
 
@@ -190,21 +214,20 @@ def build_video(job, job_dir, out_dir):
     synthesize(script, voice, audio)
     audio_seconds = ffprobe_duration(audio)
 
-    # Mantém o áudio inteiro e distribui as 5 cenas de forma uniforme.
     base = max(3.6, audio_seconds / len(scenes))
     durations = [base] * len(scenes)
 
     clips = []
     for i, scene in enumerate(scenes):
         frame = work / f"scene_{i+1:02d}.png"
-        draw_scene(job, scene, i, len(scenes), job_dir, frame)
+        draw_scene(scene, i, job_dir, frame)
         mp4 = work / f"scene_{i+1:02d}.mp4"
-        frames = int(math.ceil(durations[i] * FPS))
-        zoom = "min(zoom+0.00038,1.038)" if i % 2 == 0 else "if(lte(zoom,1.0),1.035,max(1.0,zoom-0.00034))"
+        # Sem zoompan: Zé e balão ficam parados; só mudam de posição entre cenas.
         run([
             "ffmpeg", "-y", "-loop", "1", "-i", frame,
-            "-vf", f"zoompan=z='{zoom}':d={frames}:s=1080x1920:fps={FPS},format=yuv420p",
-            "-t", f"{durations[i]:.3f}", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", mp4
+            "-vf", f"fps={FPS},format=yuv420p",
+            "-t", f"{durations[i]:.3f}", "-an",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", mp4
         ])
         clips.append(mp4)
 
@@ -228,12 +251,14 @@ def build_video(job, job_dir, out_dir):
     (out_dir / "roteiro_narracao.txt").write_text(script + "\n", encoding="utf-8")
     (out_dir / "curiosidade.json").write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
     diag = {
-        "version": "ze-curioso-mobile-speech-bubble-v2",
-        "render_mode": "ai_scene_plus_fixed_final_mascot_plus_speech_bubble",
+        "version": "ze-curioso-mobile-tiktok-bubble-v3",
+        "render_mode": "static_ai_background_plus_repositioned_mascot_plus_dynamic_speech_bubble",
         "background_engine": "cloudflare_flux",
         "mascot_asset": str(MASCOT.relative_to(ROOT)),
         "speech_bubble": True,
-        "caption_chunks_per_scene": "dynamic",
+        "caption_style": "4-word-tiktok-pop-with-highlight",
+        "mascot_motion": "none-within-scene",
+        "mascot_reposition": SIDES,
         "manual_background_required": False,
         "scene_count": len(scenes),
         "audio_duration_seconds": round(audio_seconds, 2),
@@ -241,7 +266,7 @@ def build_video(job, job_dir, out_dir):
         "final_bytes": final.stat().st_size if final.is_file() else 0,
     }
     (out_dir / "diagnostico_render.json").write_text(json.dumps(diag, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[OK] Zé Curioso com balão de fala renderizado: {final}", flush=True)
+    print(f"[OK] Zé Curioso TikTok bubble v3 renderizado: {final}", flush=True)
 
 
 def main():
