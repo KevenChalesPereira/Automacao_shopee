@@ -23,9 +23,13 @@ jobs:
       - name: Dependências Chatterbox remoto
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg curl
           python -m pip install --upgrade pip
           python -m pip install 'gradio_client>=1.3.0'
+          curl -L --fail --retry 3 \
+            'https://storage.googleapis.com/chatterbox-demo-samples/mtl_prompts/pt_m1.flac' \
+            -o /tmp/ze_pt_ref.flac
+          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 /tmp/ze_pt_ref.flac
 
       - name: Gerar 3 takes Chatterbox pt-BR
         run: |
@@ -33,59 +37,49 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import shutil
-          from gradio_client import Client
+          from gradio_client import Client, handle_file
 
           out = Path('resultado_voice')
           text = (
-              'Se liga nessa, curioso! Seu gato te segue até o banheiro por mais de um motivo. '
-              'Curiosidade pesa bastante: você entra num lugar e ele quer conferir o que mudou. '
-              'Também tem rotina. Se isso acontece sempre, ele aprende que aquele caminho faz parte do dia. '
-              'E claro, ficar perto de você pode simplesmente ser companhia, hábito e atenção. '
-              'No fim, não é mistério: é curiosidade, rotina e proximidade. Agora você sabe!'
+              'Se liga nessa! Já reparou que seu gato te segue até o banheiro? '
+              'Não é só curiosidade. Ele conhece a sua rotina, quer saber o que você está fazendo '
+              'e, muitas vezes, só quer ficar por perto. Para ele, te acompanhar pela casa faz parte do dia. '
+              'Engraçado, né? Agora você sabe!'
           )
+          reference = handle_file('/tmp/ze_pt_ref.flac')
 
           spaces = [
               'ResembleAI/Chatterbox-Multilingual-TTS-pt-br',
               'ResembleAI/Chatterbox-Multilingual-TTS',
           ]
 
-          client = None
-          api_name = None
-          api_spec = None
-          chosen_space = None
-
+          client = api_name = api_spec = chosen_space = None
           for space in spaces:
               try:
                   print(f'[>] Conectando ao Space {space}...')
                   c = Client(space, verbose=False)
                   info = c.view_api(all_endpoints=True, print_info=False, return_format='dict')
-                  named = info.get('named_endpoints', {})
                   candidates = []
-                  for name, spec in named.items():
+                  for name, spec in info.get('named_endpoints', {}).items():
                       params = spec.get('parameters', [])
-                      blob = ' '.join(
-                          str(p.get('label') or p.get('parameter_name') or '')
-                          for p in params
-                      ).lower()
+                      blob = ' '.join(str(p.get('label') or p.get('parameter_name') or '') for p in params).lower()
                       score = 0
                       if 'text' in blob: score += 4
                       if 'exagger' in blob: score += 3
                       if 'temperature' in blob: score += 2
                       if 'cfg' in blob or 'pace' in blob: score += 2
-                      if 'audio' in blob or 'reference' in blob: score += 1
+                      if 'audio' in blob or 'reference' in blob: score += 2
                       if 'generate' in name.lower() or 'tts' in name.lower(): score += 2
                       candidates.append((score, name, spec))
-                  if not candidates:
-                      raise RuntimeError('Space sem endpoints nomeados')
                   candidates.sort(reverse=True, key=lambda x: x[0])
-                  score, name, spec = candidates[0]
-                  if score < 4:
-                      raise RuntimeError(f'endpoint inadequado: {name} score={score}')
-                  client, api_name, api_spec, chosen_space = c, name, spec, space
-                  print(f'[OK] Space: {space}; endpoint: {name}; score={score}')
+                  if not candidates or candidates[0][0] < 5:
+                      raise RuntimeError('nenhum endpoint TTS adequado')
+                  _, api_name, api_spec = candidates[0]
+                  client, chosen_space = c, space
+                  print(f'[OK] {space} -> {api_name}')
                   break
               except Exception as e:
-                  print(f'[!] Falha no Space {space}: {e}')
+                  print(f'[!] Falha ao preparar {space}: {e}')
 
           if client is None:
               raise RuntimeError('Não foi possível acessar nenhum Space Chatterbox.')
@@ -97,10 +91,10 @@ jobs:
               if 'language' in label or label.strip() in {'lang', 'language_id'}:
                   return 'pt'
               if 'reference' in label or ('audio' in label and 'output' not in label):
-                  return None
+                  return reference
               if 'exagger' in label:
                   return cfg['exaggeration']
-              if 'temperature' in label or label.strip() in {'temp'}:
+              if 'temperature' in label or label.strip() == 'temp':
                   return cfg['temperature']
               if 'seed' in label:
                   return cfg['seed']
@@ -113,15 +107,13 @@ jobs:
           def find_file(obj):
               if isinstance(obj, str):
                   p = Path(obj)
-                  if p.exists() and p.is_file():
-                      return p
+                  if p.exists() and p.is_file(): return p
               if isinstance(obj, dict):
                   for key in ('path', 'name', 'value'):
                       v = obj.get(key)
                       if isinstance(v, str):
                           p = Path(v)
-                          if p.exists() and p.is_file():
-                              return p
+                          if p.exists() and p.is_file(): return p
                   for v in obj.values():
                       p = find_file(v)
                       if p: return p
@@ -132,15 +124,16 @@ jobs:
               return None
 
           takes = [
-              ('conversado', {'exaggeration': 0.55, 'temperature': 0.72, 'cfg': 0.34, 'seed': 41}),
-              ('curioso',    {'exaggeration': 0.78, 'temperature': 0.80, 'cfg': 0.30, 'seed': 77}),
-              ('energia',    {'exaggeration': 0.95, 'temperature': 0.88, 'cfg': 0.28, 'seed': 113}),
+              ('conversado', {'exaggeration': 0.50, 'temperature': 0.68, 'cfg': 0.45, 'seed': 41}),
+              ('curioso',    {'exaggeration': 0.72, 'temperature': 0.76, 'cfg': 0.38, 'seed': 77}),
+              ('energia',    {'exaggeration': 0.90, 'temperature': 0.82, 'cfg': 0.34, 'seed': 113}),
           ]
 
           params = api_spec.get('parameters', [])
+          print('[>] Parâmetros:', [p.get('label') or p.get('parameter_name') for p in params])
           for slug, cfg in takes:
               args = [param_value(p, cfg) for p in params]
-              print(f'[>] Gerando {slug}: exp={cfg["exaggeration"]} temp={cfg["temperature"]} cfg={cfg["cfg"]}')
+              print(f'[>] Gerando {slug}...')
               result = client.predict(*args, api_name=api_name)
               src = find_file(result)
               if src is None:
@@ -150,8 +143,8 @@ jobs:
               print(f'[OK] {dst}')
 
           (out / 'README.txt').write_text(
-              f'Chatterbox testado via {chosen_space}.\n'
-              'conversado: mais natural; curioso: mais expressivo; energia: mais vivo.\n',
+              f'Chatterbox testado via {chosen_space}, com referência humana oficial em português.\n'
+              'conversado = natural; curioso = expressivo; energia = mais vivo.\n',
               encoding='utf-8'
           )
           PY
