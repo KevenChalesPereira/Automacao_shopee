@@ -94,6 +94,10 @@ jobs:
           TOPIC="$(cat /tmp/topic.txt)"
           python3 ze_curioso_mobile_cloud.py --tema "$TOPIC" --out-dir mobile_job
 
+      - name: Gerar comparação de vozes pt-BR
+        run: |
+          python3 cloud/voice_audition.py mobile_job resultado_mobile/voice_tests
+
       - name: Render
         run: |
           python3 cloud/render_ze_curioso_final_v8.py mobile_job resultado_mobile
@@ -115,6 +119,8 @@ jobs:
             resultado_mobile/diagnostico_render.json
             resultado_mobile/qa_report.json
             resultado_mobile/qa_report.txt
+            resultado_mobile/voice_tests/*.mp3
+            resultado_mobile/voice_tests/README.txt
           if-no-files-found: error
           retention-days: 7
 
