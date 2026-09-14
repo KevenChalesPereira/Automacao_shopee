@@ -16,7 +16,6 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 W, H = 1080, 1920
 FPS = 30
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 DEFAULT_VOICE = "pt-BR-AntonioNeural"
 ROOT = Path(__file__).resolve().parents[1]
 MASCOT = ROOT / "assets" / "ze_curioso" / "ze_main.png"
@@ -35,27 +34,11 @@ def clean(v):
     return re.sub(r"\s+", " ", str(v or "")).strip()
 
 
-def font(size, bold=True):
+def font(size):
     try:
-        return ImageFont.truetype(FONT_BOLD if bold else FONT_REGULAR, size)
+        return ImageFont.truetype(FONT_BOLD, size)
     except Exception:
         return ImageFont.load_default()
-
-
-def wrap(text, max_chars):
-    words = clean(text).split()
-    lines, cur = [], []
-    for word in words:
-        trial = " ".join(cur + [word])
-        if len(trial) <= max_chars:
-            cur.append(word)
-        else:
-            if cur:
-                lines.append(" ".join(cur))
-            cur = [word]
-    if cur:
-        lines.append(" ".join(cur))
-    return (chr(92) + "N").join(lines)
 
 
 def ffprobe_duration(path):
@@ -74,15 +57,54 @@ def ass_time(sec):
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
+def split_caption(text, max_words=7):
+    words = clean(text).split()
+    if not words:
+        return []
+    chunks = []
+    for i in range(0, len(words), max_words):
+        chunks.append(" ".join(words[i:i + max_words]))
+    return chunks
+
+
+def wrap_ass(text, max_chars=20):
+    words = clean(text).split()
+    lines, cur = [], []
+    for word in words:
+        trial = " ".join(cur + [word])
+        if len(trial) <= max_chars:
+            cur.append(word)
+        else:
+            if cur:
+                lines.append(" ".join(cur))
+            cur = [word]
+    if cur:
+        lines.append(" ".join(cur))
+    return r"\N".join(lines[:3])
+
+
 def make_ass(scenes, durations, path):
-    header = """[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Caption,DejaVu Sans,58,&H00FFFFFF,&H000000FF,&H00101010,&H76000000,-1,0,0,0,100,100,0,0,1,5,1,2,78,78,185,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"""
+    header = """[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Bubble,DejaVu Sans,46,&H00141414,&H00141414,&H00FFFFFF,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,5,0,0,0,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"""
     lines = [header]
     t = 0.0
     for scene, dur in zip(scenes, durations):
-        text = clean(scene.get("texto") or scene.get("titulo"))
-        text = text.replace("{", "(").replace("}", ")")
-        text = wrap(text, 31)
-        lines.append(f"Dialogue: 0,{ass_time(t)},{ass_time(t+dur)},Caption,,0,0,0,,{text}\n")
+        chunks = split_caption(scene.get("texto") or scene.get("titulo"), 7)
+        if not chunks:
+            t += dur
+            continue
+        weights = [max(1, len(c.split())) for c in chunks]
+        total = sum(weights)
+        local = t
+        for idx, (chunk, weight) in enumerate(zip(chunks, weights)):
+            seg = dur * weight / total
+            end = t + dur if idx == len(chunks) - 1 else local + seg
+            text = wrap_ass(chunk, 20).replace("{", "(").replace("}", ")")
+            # Texto dentro do balão, ao lado da boca do Zé.
+            lines.append(
+                f"Dialogue: 0,{ass_time(local)},{ass_time(end)},Bubble,,0,0,0,,"
+                f"{{\\an5\\pos(745,985)\\fad(80,80)}}{text}\n"
+            )
+            local = end
         t += dur
     path.write_text("".join(lines), encoding="utf-8")
 
@@ -95,45 +117,45 @@ def cover(path):
 def shade_background(img):
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(overlay, "RGBA")
-    d.rectangle((0, 0, W, 300), fill=(0, 0, 0, 78))
-    d.rectangle((0, 1370, W, H), fill=(0, 0, 0, 62))
+    d.rectangle((0, 0, W, 230), fill=(0, 0, 0, 42))
+    d.rectangle((0, 1450, W, H), fill=(0, 0, 0, 48))
     return Image.alpha_composite(img, overlay)
 
 
-def paste_mascot(base, index, total):
+def paste_mascot(base):
     if not MASCOT.is_file():
         raise RuntimeError(f"Mascote final ausente: {MASCOT}")
 
     ze = Image.open(MASCOT).convert("RGBA")
-    target_h = 820 if index == 0 else 760
+    target_h = 850
     target_w = max(1, round(ze.width * target_h / ze.height))
     ze = ze.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
-    on_right = index % 2 == 0
-    if on_right:
-        x = W - target_w + 28
-        ze = ImageOps.mirror(ze)
-    else:
-        x = -28
-    y = H - target_h - 170
+    # Posição fixa: facilita identidade visual e balão de fala.
+    x = -42
+    y = H - target_h - 105
 
     alpha = ze.getchannel("A")
-    shadow = Image.new("RGBA", ze.size, (0, 0, 0, 0))
-    shadow.putalpha(alpha.filter(ImageFilter.GaussianBlur(18)))
-    dark = Image.new("RGBA", ze.size, (0, 0, 0, 118))
-    dark.putalpha(shadow.getchannel("A"))
-    base.alpha_composite(dark, (x + 18, y + 24))
+    shadow_alpha = alpha.filter(ImageFilter.GaussianBlur(18))
+    shadow = Image.new("RGBA", ze.size, (0, 0, 0, 110))
+    shadow.putalpha(shadow_alpha)
+    base.alpha_composite(shadow, (x + 18, y + 24))
     base.alpha_composite(ze, (x, y))
 
 
-def safe_title(scene, job, index):
-    if index != 0:
-        return ""
-    title = clean(scene.get("titulo"))
-    bad = {"hook", "gancho", "cena 1", "abertura", "introdução", "introducao"}
-    if title.lower() in bad or len(title) < 4:
-        title = clean(job.get("titulo"))
-    return title
+def draw_speech_bubble(img):
+    d = ImageDraw.Draw(img, "RGBA")
+    box = (430, 760, 1030, 1205)
+    # sombra
+    d.rounded_rectangle((442, 774, 1042, 1219), radius=58, fill=(0, 0, 0, 92))
+    # balão
+    d.rounded_rectangle(box, radius=58, fill=(255, 255, 255, 242), outline=(20, 20, 20, 220), width=5)
+    # cauda apontando para a boca do Zé
+    d.polygon([(470, 1090), (368, 1135), (447, 1015)], fill=(255, 255, 255, 242))
+    d.line([(470, 1090), (368, 1135), (447, 1015)], fill=(20, 20, 20, 220), width=5, joint="curve")
+    # ícone de conversa (três pontos) para reforçar visualmente o 💬
+    for cx in (486, 520, 554):
+        d.ellipse((cx - 8, 805 - 8, cx + 8, 805 + 8), fill=(70, 125, 190, 255))
 
 
 def draw_scene(job, scene, index, total, job_dir, destination):
@@ -142,23 +164,8 @@ def draw_scene(job, scene, index, total, job_dir, destination):
         raise RuntimeError(f"Background IA ausente: {bg.name}")
 
     img = shade_background(cover(bg))
-    d = ImageDraw.Draw(img, "RGBA")
-
-    headline = safe_title(scene, job, index)
-    if headline:
-        text = wrap(headline.upper(), 22).replace(chr(92) + "N", "\n")
-        d.multiline_text(
-            (540, 165), text, anchor="ma", align="center",
-            font=font(66), fill=(255, 255, 255, 255), spacing=8,
-            stroke_width=5, stroke_fill=(0, 0, 0, 180)
-        )
-
-    paste_mascot(img, index, total)
-
-    if index == total - 1:
-        d.rounded_rectangle((180, 1540, 900, 1635), radius=34, fill=(0, 0, 0, 165))
-        d.text((540, 1587), "SEGUE O ZÉ CURIOSO", anchor="mm", font=font(39), fill=(255, 235, 165, 255))
-
+    paste_mascot(img)
+    draw_speech_bubble(img)
     img.convert("RGB").save(destination, quality=94)
 
 
@@ -183,6 +190,7 @@ def build_video(job, job_dir, out_dir):
     synthesize(script, voice, audio)
     audio_seconds = ffprobe_duration(audio)
 
+    # Mantém o áudio inteiro e distribui as 5 cenas de forma uniforme.
     base = max(3.6, audio_seconds / len(scenes))
     durations = [base] * len(scenes)
 
@@ -192,7 +200,7 @@ def build_video(job, job_dir, out_dir):
         draw_scene(job, scene, i, len(scenes), job_dir, frame)
         mp4 = work / f"scene_{i+1:02d}.mp4"
         frames = int(math.ceil(durations[i] * FPS))
-        zoom = "min(zoom+0.00045,1.045)" if i % 2 == 0 else "if(lte(zoom,1.0),1.04,max(1.0,zoom-0.00042))"
+        zoom = "min(zoom+0.00038,1.038)" if i % 2 == 0 else "if(lte(zoom,1.0),1.035,max(1.0,zoom-0.00034))"
         run([
             "ffmpeg", "-y", "-loop", "1", "-i", frame,
             "-vf", f"zoompan=z='{zoom}':d={frames}:s=1080x1920:fps={FPS},format=yuv420p",
@@ -220,10 +228,12 @@ def build_video(job, job_dir, out_dir):
     (out_dir / "roteiro_narracao.txt").write_text(script + "\n", encoding="utf-8")
     (out_dir / "curiosidade.json").write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
     diag = {
-        "version": "ze-curioso-mobile-final-mascot-v1",
-        "render_mode": "ai_scene_plus_fixed_final_mascot",
+        "version": "ze-curioso-mobile-speech-bubble-v2",
+        "render_mode": "ai_scene_plus_fixed_final_mascot_plus_speech_bubble",
         "background_engine": "cloudflare_flux",
         "mascot_asset": str(MASCOT.relative_to(ROOT)),
+        "speech_bubble": True,
+        "caption_chunks_per_scene": "dynamic",
         "manual_background_required": False,
         "scene_count": len(scenes),
         "audio_duration_seconds": round(audio_seconds, 2),
@@ -231,7 +241,7 @@ def build_video(job, job_dir, out_dir):
         "final_bytes": final.stat().st_size if final.is_file() else 0,
     }
     (out_dir / "diagnostico_render.json").write_text(json.dumps(diag, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[OK] Zé Curioso com mascote final renderizado: {final}", flush=True)
+    print(f"[OK] Zé Curioso com balão de fala renderizado: {final}", flush=True)
 
 
 def main():
