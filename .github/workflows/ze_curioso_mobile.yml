@@ -31,7 +31,7 @@ jobs:
       - name: Dependências
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu-core webp
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
           python3 -m pip install --break-system-packages edge-tts pillow
 
       - name: Extrair tema
@@ -55,6 +55,28 @@ jobs:
           print('Tema:', topic)
           PY
 
+      - name: Montar mascote final do Zé
+        run: |
+          set -euo pipefail
+          cat \
+            assets/ze_curioso/ze_final_b64/part01.txt \
+            assets/ze_curioso/ze_final_b64/part02.txt \
+            assets/ze_curioso/ze_final_b64/part03c.txt \
+            assets/ze_curioso/ze_final_b64/part03.txt \
+            assets/ze_curioso/ze_final_b64/part04.txt \
+            assets/ze_curioso/ze_final_b64/part06.txt \
+            assets/ze_curioso/ze_final_b64/part07.txt \
+            > /tmp/ze_main.b64
+          base64 -d /tmp/ze_main.b64 > assets/ze_curioso/ze_main.png
+          python3 - <<'PY'
+          from PIL import Image
+          p='assets/ze_curioso/ze_main.png'
+          im=Image.open(p).convert('RGBA')
+          if im.width < 250 or im.height < 300:
+              raise SystemExit(f'Mascote com dimensões inesperadas: {im.size}')
+          print('Mascote final OK:', im.size)
+          PY
+
       - name: Gerar roteiro e backgrounds IA
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -65,26 +87,6 @@ jobs:
           mkdir -p mobile_job resultado_mobile
           TOPIC="$(cat /tmp/topic.txt)"
           python3 ze_curioso_mobile_cloud.py --tema "$TOPIC" --out-dir mobile_job
-
-      - name: Normalizar mascote para PNG
-        run: |
-          set -e
-          SRC="assets/ze_curioso/ze_main.webp"
-          TMP="assets/ze_curioso/ze_main_fixed.png"
-          if ffmpeg -y -i "$SRC" "$TMP"; then
-            cp "$TMP" "$SRC"
-          elif dwebp "$SRC" -o "$TMP"; then
-            cp "$TMP" "$SRC"
-          else
-            echo "Falha ao decodificar o mascote final."
-            exit 1
-          fi
-          python3 - <<'PY'
-          from PIL import Image
-          p='assets/ze_curioso/ze_main.webp'
-          im=Image.open(p).convert('RGBA')
-          print('Mascote OK:', im.size)
-          PY
 
       - name: Render
         run: |
