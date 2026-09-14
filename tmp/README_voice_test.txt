@@ -1,0 +1,1 @@
+Arquivo temporário de apoio aos testes de voz do Zé Curioso.
