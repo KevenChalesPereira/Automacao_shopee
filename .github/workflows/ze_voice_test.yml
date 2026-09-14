@@ -13,69 +13,44 @@ jobs:
   voices:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, '[Teste de voz]')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     steps:
       - name: Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Preparar referência nordestina
+      - name: Dependências
         run: |
           sudo apt-get update >/dev/null
           sudo apt-get install -y ffmpeg >/dev/null
           python -m pip install --upgrade pip >/dev/null
-          python -m pip install 'gradio_client>=1.3.0' 'datasets>=3.0.0' pyarrow >/dev/null
-          mkdir -p /tmp/nordestino_ref resultado_voice
-          python - <<'PY'
-          from pathlib import Path
-          from datasets import load_dataset, Audio
-          import subprocess
+          python -m pip install 'gradio_client>=1.3.0' >/dev/null
+          mkdir -p resultado_voice
 
-          TARGET = '63850bd9f5d888281e47a93004a0102ecb6716fe914b905b4d3cde0d89eb248ebdfdc7e9499e1c170495e3ddfee31ffd72df908f05ccd6748acc2ad8a4422817'
-          out = Path('/tmp/nordestino_ref')
-          ds = load_dataset('remynd/common_voice_pt_pt', split='train').cast_column('audio', Audio(decode=False))
-          rows=[]
-          for row in ds:
-              if row.get('client_id') == TARGET and 'nordestino' in str(row.get('accents') or '').lower():
-                  d=int(row.get('duration[ms]') or 0)
-                  if 2200 <= d <= 7000: rows.append((d,row))
-          rows.sort(reverse=True,key=lambda x:x[0])
-          chosen=[]; total=0
-          for d,row in rows:
-              chosen.append((d,row)); total+=d
-              if total>=14000 or len(chosen)>=4: break
-          if not chosen: raise SystemExit('Referência nordestina não encontrada')
-          clips=[]; transcript=[]
-          for i,(d,row) in enumerate(chosen,1):
-              a=row['audio']; suffix=Path(a.get('path') or '').suffix or '.mp3'; p=out/f'clip_{i}{suffix}'
-              if a.get('bytes') is not None: p.write_bytes(a['bytes'])
-              else: p.write_bytes(Path(a['path']).read_bytes())
-              clips.append(p); transcript.append(str(row.get('sentence') or '').strip())
-          (out/'concat.txt').write_text(''.join(f"file '{p.as_posix()}'\n" for p in clips),encoding='utf-8')
-          ref=out/'reference.wav'
-          subprocess.run(['ffmpeg','-y','-f','concat','-safe','0','-i',str(out/'concat.txt'),'-ac','1','-ar','24000','-af','highpass=f=65,loudnorm=I=-18:LRA=7:TP=-2',str(ref)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-          Path('/tmp/ref.txt').write_text(str(ref)); Path('/tmp/ref_transcript.txt').write_text(' '.join(transcript),encoding='utf-8')
-          print(f'[OK] referência: {total/1000:.2f}s')
-          PY
-
-      - name: VoxCPM2 — usar Space alternativo quando oficial estiver lotado
+      - name: Qwen3-TTS — criar voz jovem nordestina do Zé
         run: |
           python - <<'PY'
           from pathlib import Path
-          import shutil, time, json
-          from gradio_client import Client, handle_file
+          import shutil, time
+          from gradio_client import Client
 
-          ref=Path('/tmp/ref.txt').read_text().strip(); ref_text=Path('/tmp/ref_transcript.txt').read_text().strip()
           target=(
               'Rapaz, se liga nessa! Tu já reparou que teu gato te segue até o banheiro? '
               'Pois é, não é só curiosidade. Ele conhece tua rotina e muitas vezes só quer ficar por perto. '
               'Pra ele, te acompanhar pela casa já faz parte do dia. Massa, né? Agora tu sabe!'
           )
-          style=('Brazilian male, young adult, authentic Northeastern Brazilian accent, natural conversational delivery, '
-                 'smiling, curious storyteller, lively, warm, medium-fast rhythm, varied intonation, clear bright voice, '
-                 'no raspiness, no hoarseness, energetic but not theatrical')
-          spaces=['meas123/voxcpm2-demo','openbmb/VoxCPM-Demo']
+
+          voices=[
+              ('qwen_nordeste_jovem',
+               'Homem brasileiro jovem, entre 22 e 28 anos, do Nordeste do Brasil. Sotaque nordestino natural e autêntico, sem caricatura. Voz clara, leve e jovem, sem rouquidão. Fala como um amigo contando uma curiosidade, sorrindo discretamente, ritmo natural e boa variação de entonação.'),
+              ('qwen_contador_natural',
+               'Jovem homem nordestino brasileiro, contador de causos moderno e simpático. Sotaque regional natural, voz limpa e calorosa. Conversa de forma espontânea, curiosa e envolvente, com pequenas pausas humanas e mudanças naturais de entonação. Animado sem parecer locutor ou personagem forçado. Sem voz rouca.'),
+              ('qwen_tiktok_animado',
+               'Criador de conteúdo brasileiro jovem do Nordeste, homem de vinte e poucos anos. Voz amigável, sorridente, clara e energética. Sotaque nordestino perceptível e natural. Narração curta para TikTok: começa chamando atenção, varia a entonação nas palavras importantes e termina com leve entusiasmo. Nada de voz de rádio, nada teatral, nada rouco.')
+          ]
+
+          client=Client('Qwen/Qwen3-TTS',verbose=False)
 
           def find_file(obj):
               if isinstance(obj,str):
@@ -96,98 +71,41 @@ jobs:
                       if r:return r
               return None
 
-          def choose_endpoint(info):
-              cand=[]
-              for group in ('named_endpoints','unnamed_endpoints'):
-                  for name,spec in info.get(group,{}).items():
-                      params=spec.get('parameters',[])
-                      blob=' '.join(str(p.get('label') or p.get('parameter_name') or '') for p in params).lower()
-                      score=0
-                      if 'text' in blob: score+=4
-                      if 'audio' in blob or 'reference' in blob or 'prompt' in blob: score+=5
-                      if 'control' in blob or 'instruction' in blob: score+=3
-                      if 'generate' in name.lower() or 'speech' in name.lower() or 'tts' in name.lower(): score+=3
-                      cand.append((score,name,spec))
-              cand.sort(reverse=True,key=lambda x:x[0])
-              if not cand: raise RuntimeError('Nenhum endpoint encontrado')
-              print('[API] candidatos:',[(x[0],x[1]) for x in cand[:5]])
-              return cand[0][1],cand[0][2]
-
-          def value_for(p,mode):
-              label=str(p.get('label') or p.get('parameter_name') or '').lower()
-              # arquivos primeiro, para não confundir prompt text com target text
-              if ('audio' in label or 'wav' in label) and ('reference' in label or 'prompt' in label or label.strip()=='audio'):
-                  return handle_file(ref)
-              if ('prompt' in label or 'reference' in label) and ('text' in label or 'transcript' in label):
-                  return ref_text if mode=='ultimate' else ''
-              if 'control' in label or 'instruction' in label or 'style' in label:
-                  return style if mode=='controlled' else ''
-              if 'text' in label and not any(x in label for x in ('prompt','reference','control','instruction')):
-                  return target
-              if 'mode' in label:
-                  return 'Controllable Cloning' if mode=='controlled' else 'Ultimate Cloning'
-              if 'cfg' in label:
-                  return 1.85 if mode=='controlled' else 1.95
-              if 'seed' in label:
-                  return 42
-              if 'normalize' in label or 'denoise' in label or 'retry' in label:
-                  return False
-              if p.get('parameter_has_default'):
-                  return p.get('default')
-              # Gradio aceita None para componentes opcionais
-              return None
-
-          def run_mode(mode):
-              errors=[]
-              for space in spaces:
+          for slug,desc in voices:
+              last=None
+              for attempt in range(1,5):
                   try:
-                      print(f'[{mode}] conectando {space}')
-                      c=Client(space,verbose=False)
-                      info=c.view_api(all_endpoints=True,print_info=False,return_format='dict')
-                      Path(f'resultado_voice/{space.replace("/","_")}_api.json').write_text(json.dumps(info,ensure_ascii=False,indent=2),encoding='utf-8')
-                      api_name,spec=choose_endpoint(info)
-                      params=spec.get('parameters',[])
-                      print(f'[{mode}] endpoint {api_name}; params:',[p.get('label') or p.get('parameter_name') for p in params])
-                      args=[value_for(p,mode) for p in params]
-                      for attempt in range(1,4):
-                          try:
-                              print(f'[{mode}] {space} tentativa {attempt}/3')
-                              result=c.predict(*args,api_name=api_name)
-                              src=find_file(result)
-                              if not src: raise RuntimeError(f'sem áudio no retorno: {result!r}')
-                              dst=Path(f'resultado_voice/voxcpm2_{mode}').with_suffix(src.suffix or '.wav')
-                              shutil.copy2(src,dst); print('[OK]',dst); return
-                          except Exception as e:
-                              print(f'[{mode}] tentativa falhou: {e}')
-                              if attempt<3: time.sleep(20*attempt)
-                              else: raise
-                  except Exception as e:
-                      errors.append(f'{space}: {e}')
-                      print(f'[{mode}] fallback após erro em {space}: {e}')
-              raise RuntimeError(f'{mode} falhou em todos os Spaces: '+ ' | '.join(errors))
-
-          run_mode('controlled')
-          run_mode('ultimate')
+                      print(f'[>] {slug} tentativa {attempt}/4')
+                      result=client.predict(target,'Portuguese',desc,api_name='/generate_voice_design')
+                      src=find_file(result)
+                      if not src: raise RuntimeError(f'retorno sem áudio: {result!r}')
+                      dst=Path('resultado_voice')/f'{slug}{src.suffix or ".wav"}'
+                      shutil.copy2(src,dst)
+                      print('[OK]',dst)
+                      break
+                  except Exception as exc:
+                      last=exc
+                      print('[!]',exc)
+                      if attempt<4: time.sleep(20*attempt)
+              else:
+                  raise RuntimeError(f'{slug} falhou: {last}')
           PY
 
-      - name: Converter para MP3
+      - name: Polir áudio e converter MP3
         run: |
           shopt -s nullglob
-          for f in resultado_voice/voxcpm2_controlled.* resultado_voice/voxcpm2_ultimate.*; do
+          for f in resultado_voice/qwen_*; do
             [[ "$f" == *.mp3 ]] && continue
-            [[ -f "$f" ]] || continue
             base="${f%.*}"
-            ffmpeg -y -i "$f" -af 'highpass=f=65,equalizer=f=180:t=q:w=0.8:g=-1.0,loudnorm=I=-16:LRA=7:TP=-1.5' -c:a libmp3lame -q:a 2 "${base}.mp3" >/dev/null 2>&1
+            ffmpeg -y -i "$f" -af 'highpass=f=60,equalizer=f=180:t=q:w=0.8:g=-1.0,loudnorm=I=-16:LRA=7:TP=-1.5' -c:a libmp3lame -q:a 2 "${base}.mp3" >/dev/null 2>&1
           done
           ls -lh resultado_voice/*.mp3
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: ze-voxcpm2-fallback-${{ github.run_id }}
-          path: |
-            resultado_voice/*.mp3
-            resultado_voice/*_api.json
+          name: ze-qwen-nordestino-${{ github.run_id }}
+          path: resultado_voice/*.mp3
           if-no-files-found: error
           retention-days: 7
 
@@ -198,4 +116,4 @@ jobs:
           script: |
             const ok='${{ job.status }}'==='success';
             const runUrl=`https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:ok?`✅ VoxCPM2 alternativo gerado: ${runUrl}`:`❌ VoxCPM2 alternativo falhou: ${runUrl}`});
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:ok?`✅ Qwen3-TTS Voice Design nordestino gerado: ${runUrl}`:`❌ Qwen3-TTS Voice Design falhou: ${runUrl}`});
