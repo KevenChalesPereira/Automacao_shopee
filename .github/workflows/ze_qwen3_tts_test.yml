@@ -1,0 +1,104 @@
+name: Zé Curioso Qwen3-TTS Voice Test
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  voice-test:
+    if: ${{ startsWith(github.event.issue.title, '[Teste QwenTTS]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Instalar cliente
+        run: python3 -m pip install --user --upgrade gradio_client
+
+      - name: Gerar 3 vozes com Qwen3-TTS Voice Design
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          cat > /tmp/run_qwen_tts.py <<'PY'
+          import os, re, shutil, time
+          from pathlib import Path
+          from gradio_client import Client
+          from gradio_client.utils import QueueError
+
+          body = os.environ.get('ISSUE_BODY','')
+          m = re.search(r'### Texto\s*\n+(.+?)(?:\n### |\Z)', body, re.S)
+          text = (m.group(1).strip() if m else body.strip()) or 'Se liga nessa, curioso! Gato segue você até o banheiro por curiosidade e porque gosta de ficar perto.'
+          out = Path('voice_tests_qwen3'); out.mkdir(exist_ok=True)
+          client = Client('Qwen/Qwen3-TTS')
+
+          styles = [
+              ('natural', 'A young adult Brazilian male creator, warm, clear and natural. Conversational delivery, confident but relaxed, friendly smile in the voice. Brazilian Portuguese. If possible, a subtle Northeastern Brazilian cadence, never exaggerated or caricatured.'),
+              ('animado', 'A young adult Brazilian male creator with lively energy, bright tone and expressive natural prosody. Sounds genuinely excited and curious, not like an announcer. Brazilian Portuguese. If possible, a subtle Northeastern Brazilian cadence, never exaggerated.'),
+              ('causo', 'A charismatic young adult Brazilian male storyteller, warm and playful, like telling an intriguing story to a friend. Expressive pauses, changing intonation, natural humor and curiosity. Brazilian Portuguese. If possible, a subtle Northeastern Brazilian cadence, never caricatured.'),
+          ]
+
+          def extract_path(x):
+              if isinstance(x, str) and x: return x
+              if isinstance(x, dict):
+                  for k in ('path','name','url'):
+                      v=x.get(k)
+                      if isinstance(v,str) and v: return v
+              if isinstance(x,(list,tuple)):
+                  for v in x:
+                      try: return extract_path(v)
+                      except Exception: pass
+              raise RuntimeError(f'Nenhum arquivo de áudio encontrado em {x!r}')
+
+          def generate(desc):
+              last=None
+              for attempt in range(1, 13):
+                  try:
+                      print(f'Tentativa {attempt}/12', flush=True)
+                      result = client.predict(text, 'Portuguese', desc, api_name='/generate_voice_design')
+                      # Saída: (audio, status)
+                      return result
+                  except QueueError as exc:
+                      last=exc
+                      wait=min(10 + attempt*3, 35)
+                      print(f'Fila cheia; aguardando {wait}s', flush=True)
+                      time.sleep(wait)
+                  except Exception as exc:
+                      last=exc
+                      if 'Queue is full' not in str(exc):
+                          raise
+                      time.sleep(20)
+              raise RuntimeError(f'Fila permaneceu cheia: {last}')
+
+          lines=[f'Texto: {text}','Motor: Qwen/Qwen3-TTS 1.7B Voice Design','Idioma: Portuguese','Áudio bruto do modelo; sem EQ, pitch, formant ou loudness processing.','']
+          for slug, desc in styles:
+              print(f'=== {slug} ===', flush=True)
+              result=generate(desc)
+              print(f'Resultado: {result!r}', flush=True)
+              src=Path(extract_path(result))
+              if not src.exists(): raise RuntimeError(f'Arquivo não existe: {src}')
+              ext=src.suffix if src.suffix else '.wav'
+              dst=out/f'ze_qwen3_{slug}{ext}'
+              shutil.copyfile(src,dst)
+              lines += [f'{slug}: {desc}',f'arquivo: {dst.name}','']
+          (out/'README.txt').write_text('\n'.join(lines),encoding='utf-8')
+          PY
+          python3 /tmp/run_qwen_tts.py
+
+      - name: Upload das vozes
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-qwen3-tts-${{ github.run_id }}
+          path: voice_tests_qwen3/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Responder no issue
+        if: ${{ always() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const ok = '${{ job.status }}' === 'success';
+            await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body: ok ? `✅ Qwen3-TTS gerou os 3 takes. Artifact: **ze-qwen3-tts-${context.runId}**\n\n${runUrl}` : `❌ O teste Qwen3-TTS falhou. Logs:\n\n${runUrl}`});
