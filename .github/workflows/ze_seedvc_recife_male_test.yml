@@ -1,0 +1,147 @@
+name: Zé Curioso Seed-VC Recife Male Test
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  convert:
+    if: ${{ startsWith(github.event.issue.title, '[Teste SeedVC]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar clientes
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install gradio_client huggingface_hub edge-tts >/dev/null
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y ffmpeg >/dev/null
+          mkdir -p seedvc_test
+
+      - name: Preparar fonte Recife e alvo masculino sintético pt-BR
+        run: |
+          python - <<'PY'
+          import asyncio
+          from huggingface_hub import hf_hub_download
+          from pathlib import Path
+          import shutil
+          import edge_tts
+
+          out=Path('seedvc_test')
+          src=hf_hub_download(
+              repo_id='tech4humans/Audio-Transcription-Models-Comparison-PT-BR',
+              repo_type='dataset',
+              filename='audio/NordestePEsotaque.wav'
+          )
+          shutil.copy2(src,out/'recife_original.wav')
+
+          # Timbre-alvo sintético masculino pt-BR. Assim não copiamos a identidade de outro homem real.
+          text=(
+              'Se liga nessa, curioso! Tem coisa que a gente vê todo dia e nunca para pra pensar no motivo. '
+              'Quando você descobre a explicação, parece simples, mas muda completamente o jeito de olhar praquilo.'
+          )
+          async def main():
+              tts=edge_tts.Communicate(text,'pt-BR-AntonioNeural',rate='+2%',pitch='+0Hz')
+              await tts.save(str(out/'antonio_target.mp3'))
+          asyncio.run(main())
+          PY
+          ffmpeg -y -i seedvc_test/antonio_target.mp3 -ar 24000 -ac 1 seedvc_test/antonio_target.wav >/dev/null 2>&1
+
+      - name: Converter Recife para timbre masculino com Seed-VC
+        run: |
+          cat > /tmp/seedvc_remote.py <<'PY'
+          from gradio_client import Client, handle_file
+          from pathlib import Path
+          import shutil, time, json
+
+          out=Path('seedvc_test')
+          client=Client('Plachta/Seed-VC')
+          print('=== API ===')
+          try:
+              print(client.view_api(all_endpoints=True))
+          except Exception as e:
+              print('view_api falhou:',repr(e))
+
+          src=handle_file(str(out/'recife_original.wav'))
+          tgt=handle_file(str(out/'antonio_target.wav'))
+
+          candidates=['/predict','/predict_1','/convert_voice_v1_wrapper','/convert_voice_v1']
+          last=None
+          result=None
+          used=None
+          for api in candidates:
+              try:
+                  print('Tentando',api,flush=True)
+                  # V1: source, reference, diffusion steps, length adjust, cfg, f0 condition, auto f0 adjust, semitone shift
+                  result=client.predict(src,tgt,25,1.0,0.72,False,False,0,api_name=api)
+                  used=api
+                  print('OK',api,repr(result),flush=True)
+                  break
+              except Exception as e:
+                  last=e
+                  print('Falhou',api,repr(e),flush=True)
+                  time.sleep(2)
+          if result is None:
+              raise RuntimeError(f'Nenhum endpoint funcionou: {last!r}')
+
+          def find_file(x):
+              if isinstance(x,str):
+                  p=Path(x)
+                  if p.exists(): return p
+              if isinstance(x,dict):
+                  for k in ('path','name'):
+                      v=x.get(k)
+                      if isinstance(v,str) and Path(v).exists(): return Path(v)
+              if isinstance(x,(list,tuple)):
+                  # prefere a última saída, normalmente Full Output Audio
+                  for v in reversed(x):
+                      p=find_file(v)
+                      if p is not None: return p
+              return None
+
+          p=find_file(result)
+          if p is None:
+              raise RuntimeError(f'Seed-VC respondeu sem arquivo local: {result!r}')
+          ext=p.suffix or '.wav'
+          dst=out/f'recife_masculino_seedvc{ext}'
+          shutil.copy2(p,dst)
+          (out/'README.txt').write_text(
+              'Teste experimental Seed-VC V1\n'
+              'Fonte de prosódia/sotaque: amostra Recife do dataset tech4humans.\n'
+              'Timbre alvo: Microsoft Edge TTS pt-BR-AntonioNeural (sintético).\n'
+              'Objetivo: manter ritmo/cadência da fonte e trocar o timbre para masculino.\n'
+              f'Endpoint usado: {used}\n'
+              'Sem EQ, pitch ou formant pós-conversão.\n',encoding='utf-8')
+          print('SALVO',dst)
+          PY
+          python /tmp/seedvc_remote.py
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-seedvc-recife-male-${{ github.run_id }}
+          path: |
+            seedvc_test/recife_masculino_seedvc*
+            seedvc_test/recife_original.wav
+            seedvc_test/antonio_target.wav
+            seedvc_test/README.txt
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Responder no issue
+        if: ${{ always() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl=`https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const ok='${{ job.status }}'==='success';
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:ok?`✅ Seed-VC converteu Recife para timbre masculino. Artifact: **ze-seedvc-recife-male-${context.runId}**\n\n${runUrl}`:`❌ Teste Seed-VC falhou. Logs:\n\n${runUrl}`});
