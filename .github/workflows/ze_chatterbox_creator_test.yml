@@ -1,0 +1,144 @@
+name: Ze Curioso Chatterbox Creator PT-BR Test
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  voices:
+    if: startsWith(github.event.issue.title, '[Teste Chatterbox]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install client
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install 'gradio_client>=1.8,<2' >/dev/null
+          mkdir -p resultado_chatterbox
+
+      - name: Generate expressive PT-BR samples
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python - <<'PY'
+          import os, re, shutil, json
+          from pathlib import Path
+          from gradio_client import Client
+
+          body=os.environ.get('ISSUE_BODY','')
+          m=re.search(r'### Texto\s*\n+(.+?)(?:\n### |\Z)',body,re.S)
+          text=(m.group(1).strip() if m else body.strip()) or (
+              'Se liga nessa: o polvo tem três corações. Dois bombeiam sangue para as brânquias, '
+              'enquanto o terceiro manda sangue oxigenado para o resto do corpo. E tem mais: quando '
+              'ele nada, esse coração principal desacelera. Curioso demais, né?'
+          )
+          text=text[:290]
+          out=Path('resultado_chatterbox')
+
+          spaces=[
+              'Gorduxo/Voice-PT-BR-creator',
+              'ResembleAI/Chatterbox-Multilingual-TTS-pt-br',
+          ]
+          profiles=[
+              ('natural_viva',0.65,0.80,0.40),
+              ('criador',0.90,0.85,0.35),
+              ('criador_mais_animado',1.15,0.90,0.32),
+          ]
+
+          notes=['Texto: '+text,'Objetivo: voz pt-BR masculina/natural com variacao real de prosodia.','']
+          generated=0
+          client=None
+          chosen_space=None
+          for space in spaces:
+              try:
+                  print('[>] conectando',space)
+                  c=Client(space, verbose=False)
+                  try:
+                      api=c.view_api(return_format='dict')
+                      print(json.dumps(api,ensure_ascii=False,default=str)[:12000])
+                  except Exception as e:
+                      print('[!] view_api',type(e).__name__,e)
+                  client=c; chosen_space=space
+                  break
+              except Exception as e:
+                  notes.append(f'{space}: conexão falhou: {type(e).__name__}: {e}')
+                  print('[!]',space,repr(e))
+
+          if client is None:
+              raise RuntimeError('Nenhum Space Chatterbox acessível')
+
+          notes += [f'Space usado: {chosen_space}','']
+
+          def extract_path(res):
+              if isinstance(res,str) and Path(res).exists(): return Path(res)
+              if isinstance(res,(list,tuple)):
+                  for x in res:
+                      p=extract_path(x)
+                      if p: return p
+              if isinstance(res,dict):
+                  for k in ('path','name','value','audio'):
+                      if k in res:
+                          p=extract_path(res[k])
+                          if p: return p
+              return None
+
+          for label,exag,temp,cfg in profiles:
+              print('[>] perfil',label,exag,temp,cfg)
+              attempts=[]
+              for api_name,args in [
+                  ('/generate_tts_audio',[text,None,exag,temp,17,cfg]),
+                  ('/generate',[text,None,exag,temp,17,cfg]),
+                  ('/predict',[text,None,exag,temp,17,cfg]),
+                  (None,[text,None,exag,temp,17,cfg]),
+                  # multilingual generic space fallback signature
+                  ('/generate_tts_audio',[text,'pt',None,exag,temp,17,cfg]),
+                  (None,[text,'pt',None,exag,temp,17,cfg]),
+              ]:
+                  try:
+                      kw={} if api_name is None else {'api_name':api_name}
+                      res=client.predict(*args,**kw)
+                      print('[OK raw]',repr(res)[:1000])
+                      src=extract_path(res)
+                      if not src:
+                          raise RuntimeError('resultado sem arquivo de audio reconhecivel')
+                      suffix=src.suffix if src.suffix.lower() in ('.wav','.mp3','.flac','.ogg') else '.wav'
+                      dst=out/f'ze_chatterbox_{label}{suffix}'
+                      shutil.copy2(src,dst)
+                      notes.append(f'{label}: exag={exag}, temp={temp}, cfg={cfg} -> {dst.name} ({dst.stat().st_size} bytes)')
+                      generated += 1
+                      break
+                  except Exception as e:
+                      attempts.append(f'{api_name or "default"}: {type(e).__name__}: {e}')
+              else:
+                  notes.append(label+' FALHOU: '+' | '.join(attempts))
+
+          notes += ['',f'Total gerado: {generated}']
+          (out/'README.txt').write_text('\n'.join(notes),encoding='utf-8')
+          if generated == 0:
+              raise RuntimeError('Chatterbox não gerou nenhuma amostra; veja README/logs')
+          PY
+
+      - name: Upload samples
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-chatterbox-creator-${{ github.run_id }}
+          path: resultado_chatterbox/*
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Comment issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl=`https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:`Teste Chatterbox finalizado. Artifact: **ze-chatterbox-creator-${context.runId}**\n\n${runUrl}`});
