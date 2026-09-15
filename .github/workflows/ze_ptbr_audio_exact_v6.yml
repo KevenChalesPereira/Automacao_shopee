@@ -1,0 +1,67 @@
+name: Zé Curioso PTBR Exact Audio V6
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audio:
+    if: ${{ startsWith(github.event.issue.title, '[Áudio ptBR v6]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Dependências
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install edge-tts >/dev/null
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y ffmpeg >/dev/null
+          mkdir -p out
+
+      - name: Gerar narração pt-BR exata
+        run: |
+          python - <<'PY'
+          import asyncio
+          from pathlib import Path
+          import edge_tts
+
+          text=(
+            'Se liga nessa, curioso! Gato segue você ao banheiro por curiosidade. '
+            'Ele sente seu cheiro e vê você entrar, então acompanha. '
+            'O barulho da água chama a atenção dele, como um som interessante. '
+            'Além disso, ele gosta de estar perto de você, faz parte da rotina. '
+            'Então ele vem, buscando companhia. Agora você sabe! Bora pra próxima com o Zé!'
+          )
+
+          async def main():
+              c=edge_tts.Communicate(text,'pt-BR-AntonioNeural',rate='+5%',pitch='+0Hz')
+              await c.save('out/narracao_ptbr_v6_raw.mp3')
+          asyncio.run(main())
+          PY
+          ffmpeg -y -i out/narracao_ptbr_v6_raw.mp3 -af 'loudnorm=I=-16:LRA=7:TP=-1.5' -c:a libmp3lame -q:a 2 out/narracao_ptbr_v6.mp3 >/dev/null 2>&1
+          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 out/narracao_ptbr_v6.mp3
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-ptbr-v6-audio-${{ github.run_id }}
+          path: out/narracao_ptbr_v6.mp3
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Responder
+        if: ${{ always() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl=`https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:`Áudio pt-BR: ${runUrl}`});
