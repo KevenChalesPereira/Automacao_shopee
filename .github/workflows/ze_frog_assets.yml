@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Download licensed wood frog photos
+      - name: Download verified licensed wood frog photos
         run: |
           set -euo pipefail
           mkdir -p frog_assets
@@ -25,13 +25,9 @@ jobs:
           curl --fail --location --retry 3 \
             'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Lithobates_sylvaticus_-_Wood_Frog_01.jpg/1280px-Lithobates_sylvaticus_-_Wood_Frog_01.jpg' \
             -o frog_assets/frog_02.jpg
-          curl --fail --location --retry 3 \
-            'https://upload.wikimedia.org/wikipedia/commons/thumb/3/39/Wood_Frog_%28Lithobates_sylvaticus%29.jpg/1280px-Wood_Frog_%28Lithobates_sylvaticus%29.jpg' \
-            -o frog_assets/frog_03.jpg
           file frog_assets/*
           test -s frog_assets/frog_01.jpg
           test -s frog_assets/frog_02.jpg
-          test -s frog_assets/frog_03.jpg
 
       - uses: actions/upload-artifact@v4
         with:
