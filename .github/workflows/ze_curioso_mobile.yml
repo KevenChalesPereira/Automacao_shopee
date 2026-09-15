@@ -77,7 +77,7 @@ jobs:
           print('Mascote final OK:', im.size)
           PY
 
-      - name: Gerar roteiro e backgrounds IA
+      - name: Gerar roteiro e backgrounds resilientes
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -86,7 +86,7 @@ jobs:
           rm -rf mobile_job resultado_mobile
           mkdir -p mobile_job resultado_mobile
           TOPIC="$(cat /tmp/topic.txt)"
-          python3 ze_curioso_mobile_cloud.py --tema "$TOPIC" --out-dir mobile_job
+          python3 ze_curioso_mobile_cloud_stable.py --tema "$TOPIC" --out-dir mobile_job
 
       - name: Render com voz pt-BR nativa
         run: |
@@ -95,6 +95,35 @@ jobs:
       - name: QA
         run: |
           python3 qa_ze_curioso.py --output-dir resultado_mobile
+
+      - name: Registrar proveniência do run
+        env:
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          from datetime import datetime, timezone
+          from pathlib import Path
+          topic = Path('/tmp/topic.txt').read_text(encoding='utf-8').strip()
+          engine_sha = subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()
+          bg_path = Path('mobile_job/background_provenance.json')
+          backgrounds = json.loads(bg_path.read_text(encoding='utf-8')) if bg_path.exists() else {}
+          data = {
+              'tema': topic,
+              'github_run_id': os.environ.get('RUN_ID'),
+              'github_run_number': os.environ.get('RUN_NUMBER'),
+              'engine_branch': 'ze-curioso-v24',
+              'engine_sha': engine_sha,
+              'created_at_utc': datetime.now(timezone.utc).isoformat(),
+              'backgrounds': backgrounds,
+          }
+          out = Path('resultado_mobile/proveniencia_run.json')
+          out.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+          if bg_path.exists():
+              Path('resultado_mobile/background_provenance.json').write_text(bg_path.read_text(encoding='utf-8'), encoding='utf-8')
+          print('Proveniência:', json.dumps(data, ensure_ascii=False))
+          PY
 
       - name: Upload do vídeo
         uses: actions/upload-artifact@v4
@@ -109,6 +138,9 @@ jobs:
             resultado_mobile/diagnostico_render.json
             resultado_mobile/qa_report.json
             resultado_mobile/qa_report.txt
+            resultado_mobile/proveniencia_run.json
+            resultado_mobile/background_provenance.json
+            mobile_job/curiosidade.json
           if-no-files-found: error
           retention-days: 7
 
