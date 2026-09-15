@@ -34,9 +34,9 @@ jobs:
           client = Client('Qwen/Qwen3-TTS')
 
           styles = [
-              ('natural', 'A young adult Brazilian male creator, warm, clear and natural. Conversational delivery, confident but relaxed, friendly smile in the voice. Brazilian Portuguese. If possible, a subtle Northeastern Brazilian cadence, never exaggerated or caricatured.'),
-              ('animado', 'A young adult Brazilian male creator with lively energy, bright tone and expressive natural prosody. Sounds genuinely excited and curious, not like an announcer. Brazilian Portuguese. If possible, a subtle Northeastern Brazilian cadence, never exaggerated.'),
-              ('causo', 'A charismatic young adult Brazilian male storyteller, warm and playful, like telling an intriguing story to a friend. Expressive pauses, changing intonation, natural humor and curiosity. Brazilian Portuguese. If possible, a subtle Northeastern Brazilian cadence, never caricatured.'),
+              ('paulista', 'Native Brazilian Portuguese male voice, young adult from São Paulo state. Neutral Southeastern Brazilian accent, unmistakably Brazilian, natural spoken rhythm, warm and conversational. Clear Brazilian vowel sounds and Brazilian R sounds. Absolutely no Spanish, Venezuelan, Hispanic or generic Latin American accent. Sounds like a Brazilian TikTok creator talking to a friend, not an announcer.'),
+              ('interior_sp', 'Native Brazilian Portuguese male voice, young adult from the interior of São Paulo state. Friendly, charismatic and slightly playful, with a very subtle interior-SP cadence but no exaggerated caipira caricature. Unmistakably Brazilian Portuguese pronunciation. Absolutely no Spanish or Hispanic accent. Natural pauses and lively curiosity.'),
+              ('criador_br', 'Native Brazilian Portuguese male content creator in his twenties. Modern internet-video delivery, warm, energetic and expressive without sounding theatrical. Neutral Brazilian accent leaning São Paulo/Southeast. Brazilian Portuguese pronunciation only; no Spanish-like vowels, no Venezuelan or Hispanic cadence. Sounds casual, confident and genuinely curious.'),
           ]
 
           def extract_path(x):
@@ -57,7 +57,6 @@ jobs:
                   try:
                       print(f'Tentativa {attempt}/12', flush=True)
                       result = client.predict(text, 'Portuguese', desc, api_name='/generate_voice_design')
-                      # Saída: (audio, status)
                       return result
                   except QueueError as exc:
                       last=exc
