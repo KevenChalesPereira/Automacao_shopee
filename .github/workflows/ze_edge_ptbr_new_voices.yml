@@ -26,12 +26,12 @@ jobs:
           python -m pip install edge-tts >/dev/null
           mkdir -p resultado_edge
 
-      - name: Gerar seis vozes masculinas pt-BR novas
+      - name: Descobrir e gerar vozes masculinas pt-BR realmente disponiveis
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
           python - <<'PY'
-          import asyncio, os, re
+          import asyncio, os, re, unicodedata
           from pathlib import Path
           import edge_tts
 
@@ -42,32 +42,59 @@ jobs:
             'e um para o resto do corpo. O terceiro distribui sangue oxigenado aos músculos e aos órgãos. '
             'Agora você sabe! Bora pra próxima com o Zé!'
           )
-          voices=[
-            ('donato','pt-BR-DonatoNeural'),
-            ('fabio','pt-BR-FabioNeural'),
-            ('humberto','pt-BR-HumbertoNeural'),
-            ('julio','pt-BR-JulioNeural'),
-            ('nicolau','pt-BR-NicolauNeural'),
-            ('valerio','pt-BR-ValerioNeural'),
-          ]
           out=Path('resultado_edge')
 
+          def slugify(s):
+            s=unicodedata.normalize('NFKD',s).encode('ascii','ignore').decode().lower()
+            s=re.sub(r'[^a-z0-9]+','_',s).strip('_')
+            return s
+
           async def main():
-            notes=['Texto: '+text,'Comparacao crua: mesmo texto, rate +4%, pitch 0Hz. Antonio nao incluido.','']
-            for slug,voice in voices:
+            catalog=await edge_tts.list_voices()
+            br=[v for v in catalog if v.get('Locale')=='pt-BR']
+            male=[v for v in br if str(v.get('Gender','')).lower()=='male']
+            rejected={'pt-BR-AntonioNeural'}
+            candidates=[v for v in male if v.get('ShortName') not in rejected]
+
+            print('=== CATALOGO PT-BR RECEBIDO PELO ENDPOINT ===')
+            for v in br:
+              print(v.get('ShortName'), '|', v.get('Gender'), '|', v.get('FriendlyName'))
+            print('=== CANDIDATOS MASCULINOS, EXCLUINDO ANTONIO ===')
+            for v in candidates:
+              print(v.get('ShortName'))
+
+            notes=['Texto: '+text,'Descoberta automatica com edge_tts.list_voices().','Antonio excluido por ja ser a voz atual/rejeitada como solucao final.','', 'Catalogo pt-BR:']
+            notes += [f"{v.get('ShortName')} | {v.get('Gender')} | {v.get('FriendlyName')}" for v in br]
+            notes += ['', 'Resultados gerados:']
+
+            generated=0
+            for v in candidates:
+              voice=v.get('ShortName')
+              slug=slugify(voice.replace('pt-BR-','').replace('Neural',''))
               dst=out/f'ze_edge_{slug}.mp3'
               print('[>]',voice)
-              c=edge_tts.Communicate(text,voice=voice,rate='+4%',pitch='+0Hz',volume='+0%')
-              await c.save(str(dst))
-              if not dst.exists() or dst.stat().st_size < 1000:
-                raise RuntimeError(f'Arquivo invalido: {dst}')
-              print('[OK]',dst,dst.stat().st_size)
-              notes.append(f'{slug}: {voice}')
+              try:
+                c=edge_tts.Communicate(text,voice=voice,rate='+4%',pitch='+0Hz',volume='+0%')
+                await c.save(str(dst))
+                if not dst.exists() or dst.stat().st_size < 1000:
+                  raise RuntimeError('arquivo ausente/pequeno')
+                generated += 1
+                notes.append(f'{voice} -> {dst.name} ({dst.stat().st_size} bytes)')
+                print('[OK]',dst,dst.stat().st_size)
+              except Exception as e:
+                notes.append(f'{voice} -> FALHOU: {type(e).__name__}: {e}')
+                print('[!]',voice,repr(e))
+                if dst.exists(): dst.unlink()
+
+            notes += ['', f'Total gerado: {generated}']
             (out/'README.txt').write_text('\n'.join(notes),encoding='utf-8')
+            if generated == 0:
+              print('[!] Nenhuma alternativa masculina pt-BR gerou audio. README sera enviado para diagnostico.')
+
           asyncio.run(main())
           PY
 
-      - name: Upload
+      - name: Upload diagnostico e audios disponiveis
         uses: actions/upload-artifact@v4
         with:
           name: ze-edge-ptbr-new-${{ github.run_id }}
@@ -82,4 +109,4 @@ jobs:
           script: |
             const ok='${{ job.status }}'==='success';
             const runUrl=`https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:ok?`✅ Seis vozes novas pt-BR geradas. Artifact: **ze-edge-ptbr-new-${context.runId}**\n\n${runUrl}`:`❌ Teste Edge novos falhou. Logs: ${runUrl}`});
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:ok?`✅ Catálogo Edge pt-BR consultado e artifact criado: **ze-edge-ptbr-new-${context.runId}**\n\n${runUrl}`:`❌ Diagnóstico Edge falhou. Logs: ${runUrl}`});
