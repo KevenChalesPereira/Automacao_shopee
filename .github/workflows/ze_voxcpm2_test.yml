@@ -1,0 +1,107 @@
+name: Zé Curioso VoxCPM2 Voice Test
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  voice-test:
+    if: ${{ startsWith(github.event.issue.title, '[Teste VoxCPM]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Instalar cliente do Hugging Face Space
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install gradio_client pydub
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Gerar 3 takes com VoxCPM2 real
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          cat > /tmp/run_voxcpm.py <<'PY'
+          import os, re, shutil, subprocess
+          from pathlib import Path
+          from gradio_client import Client
+
+          body = os.environ.get('ISSUE_BODY','')
+          m = re.search(r'### Texto\s*\n+(.+?)(?:\n### |\Z)', body, re.S)
+          text = (m.group(1).strip() if m else body.strip())
+          if not text:
+              text = 'Se liga nessa, curioso! Gato segue você até o banheiro por curiosidade e porque gosta de ficar perto.'
+
+          out = Path('voice_tests_voxcpm2')
+          out.mkdir(exist_ok=True)
+          client = Client('openbmb/VoxCPM-Demo')
+
+          styles = [
+              ('natural', 'Young adult Brazilian male voice, warm, clear, natural and conversational. Subtle northeastern Brazilian cadence if possible, never exaggerated, friendly creator voice.'),
+              ('animado', 'Young adult Brazilian male voice, lively, upbeat, smiling and energetic, with natural expressive prosody. Subtle northeastern Brazilian cadence if possible, never caricatured.'),
+              ('causo', 'Young adult Brazilian male storyteller, warm and charismatic, playful curiosity, like telling a good story to a friend. Natural pauses and expressive rhythm. Subtle northeastern Brazilian cadence if possible, never exaggerated.'),
+          ]
+
+          def extract_path(result):
+              if isinstance(result, str): return result
+              if isinstance(result, dict):
+                  for k in ('path','name','url'):
+                      v = result.get(k)
+                      if isinstance(v,str) and v: return v
+              if isinstance(result, (tuple,list)):
+                  for v in result:
+                      try: return extract_path(v)
+                      except Exception: pass
+              raise RuntimeError(f'Formato de saída inesperado: {type(result)} {result!r}')
+
+          lines = [f'Texto: {text}', 'Motor: OpenBMB VoxCPM2 via Space oficial', 'Sem pitch/formant/equalizador; apenas conversão WAV->MP3 para facilitar reprodução.', '']
+          for slug, control in styles:
+              print(f'=== {slug} ===', flush=True)
+              result = client.predict(
+                  text,
+                  control,
+                  None,
+                  False,
+                  '',
+                  2.0,
+                  True,
+                  False,
+                  10,
+                  api_name='/generate'
+              )
+              src = Path(extract_path(result))
+              if not src.exists():
+                  raise RuntimeError(f'Arquivo retornado não existe: {src}')
+              wav = out / f'ze_voxcpm2_{slug}.wav'
+              shutil.copyfile(src, wav)
+              mp3 = out / f'ze_voxcpm2_{slug}.mp3'
+              subprocess.run(['ffmpeg','-y','-i',str(wav),'-c:a','libmp3lame','-q:a','2',str(mp3)], check=True)
+              lines += [f'{slug}: {control}', f'arquivo: {mp3.name}', '']
+
+          (out/'README.txt').write_text('\n'.join(lines), encoding='utf-8')
+          PY
+          python3 /tmp/run_voxcpm.py
+
+      - name: Upload das vozes
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-voxcpm2-${{ github.run_id }}
+          path: voice_tests_voxcpm2/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Responder no issue
+        if: ${{ always() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const ok = '${{ job.status }}' === 'success';
+            const body = ok
+              ? `✅ VoxCPM2 gerou os 3 takes. Artifact: **ze-voxcpm2-${context.runId}**\n\n${runUrl}`
+              : `❌ O teste VoxCPM2 falhou. Logs:\n\n${runUrl}`;
+            await github.rest.issues.createComment({owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body});
