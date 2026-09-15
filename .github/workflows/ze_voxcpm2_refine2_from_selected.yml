@@ -1,0 +1,136 @@
+name: Ze Curioso VoxCPM2 Refine Selected Take
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  refine:
+    if: startsWith(github.event.issue.title, '[Teste VoxRefine2]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tools
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install 'gradio_client>=1.8,<2' >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip ffmpeg >/dev/null
+          mkdir -p voice_refine2 reference_src
+
+      - name: Download selected VoxCPM2 take
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10419929060/zip" \
+            -o /tmp/selected.zip
+          unzip -o /tmp/selected.zip -d reference_src
+          REF="$(find reference_src -type f -name 'ze_voxrefine_02_criador_conversando.*' | head -n 1)"
+          test -n "$REF" && test -s "$REF"
+          cp "$REF" selected_reference.mp3
+          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 selected_reference.mp3
+
+      - name: Generate subtle second-pass refinement
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python - <<'PY'
+          import os, re, shutil, time
+          from pathlib import Path
+          from gradio_client import Client, handle_file
+
+          body=os.environ.get('ISSUE_BODY','')
+          m=re.search(r'### Texto\s*\n+(.+?)(?:\n### |\Z)',body,re.S)
+          text=(m.group(1).strip() if m else body.strip()) or (
+              'Se liga nessa: o polvo tem três corações. Dois bombeiam sangue para as brânquias, '
+              'enquanto o terceiro manda sangue oxigenado para o resto do corpo. E tem mais: quando '
+              'ele nada, esse coração principal desacelera. Curioso demais, né?'
+          )
+          text=text[:320]
+          ref=handle_file('selected_reference.mp3')
+          out=Path('voice_refine2')
+          client=Client('openbmb/VoxCPM-Demo', verbose=False)
+
+          control=(
+              'Brazilian Portuguese male short-form creator. Preserve the selected reference voice and its relaxed conversational character. '
+              'Make only a subtle refinement: slightly more natural phrase-to-phrase flow, a touch more curiosity in the opening, gentle emphasis on '
+              '"três corações", "brânquias" and "desacelera", short human pauses, and a warmer playful lift on the final question. '
+              'Sound like one person casually telling a surprising fact to one friend. Keep it believable and understated: no announcer tone, '
+              'no theatrical acting, no shouting, no artificial sing-song rhythm.'
+          )
+
+          last=None
+          for attempt in range(1,16):
+              try:
+                  res=client.predict(text, control, ref, False, '', 2.0, True, False, api_name='/generate')
+                  break
+              except Exception as exc:
+                  last=exc
+                  s=str(exc)
+                  if 'Queue is full' in s or 'busy' in s.lower() or '429' in s:
+                      time.sleep(min(20+attempt*3,50))
+                      continue
+                  raise
+          else:
+              raise RuntimeError(f'Falhou após tentativas: {last}')
+
+          def extract_path(res):
+              if isinstance(res,str): return res
+              if isinstance(res,dict):
+                  for k in ('path','name','url'):
+                      v=res.get(k)
+                      if isinstance(v,str) and v: return v
+              if isinstance(res,(tuple,list)):
+                  for v in res:
+                      try: return extract_path(v)
+                      except Exception: pass
+              raise RuntimeError(f'Formato inesperado: {res!r}')
+
+          src=Path(extract_path(res))
+          if not src.exists() or src.stat().st_size < 5000:
+              raise RuntimeError(f'Audio inválido: {src}')
+          suffix=src.suffix.lower() or '.mp3'
+          dst=out/f'ze_voxrefine2_final{suffix}'
+          shutil.copy2(src,dst)
+          (out/'README.txt').write_text(
+              'Motor: OpenBMB VoxCPM2\nReferência: take 02 criador conversando escolhido pelo usuário.\n'
+              'Refinamento sutil de prosódia apenas; sem EQ, pitch, formant ou pós-processamento de timbre.\n\n'+control,
+              encoding='utf-8'
+          )
+          PY
+
+      - name: Verify audio
+        run: |
+          f="$(find voice_refine2 -type f \( -name '*.mp3' -o -name '*.wav' -o -name '*.flac' -o -name '*.ogg' \) | head -n1)"
+          test -n "$f" && test -s "$f"
+          ffprobe -v error -show_entries format=duration,format_name -of default=nw=1 "$f"
+
+      - name: Upload refined voice
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-voxrefine2-${{ github.run_id }}
+          path: voice_refine2/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Comment issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl=`https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const ok='${{ job.status }}' === 'success';
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body: ok ? `✅ Segunda lapidada concluída. Artifact: **ze-voxrefine2-${context.runId}**\n\n${runUrl}` : `❌ A segunda lapidada falhou. Logs:\n\n${runUrl}`});
