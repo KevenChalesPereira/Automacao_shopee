@@ -1,0 +1,168 @@
+name: Ze Curioso VoxCPM2 Refine From Chatterbox
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  refine:
+    if: startsWith(github.event.issue.title, '[Teste VoxRefine]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tools
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install 'gradio_client>=1.8,<2' >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq unzip ffmpeg >/dev/null
+          mkdir -p voice_tests_voxrefine reference_src
+
+      - name: Download selected Chatterbox reference
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10419540570/zip" \
+            -o /tmp/chatterbox_ref.zip
+          unzip -o /tmp/chatterbox_ref.zip -d reference_src
+          REF="$(find reference_src -type f -name 'ze_chatterbox_natural_viva.*' | head -n 1)"
+          test -n "$REF" && test -s "$REF"
+          cp "$REF" reference.wav
+          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 reference.wav
+
+      - name: Generate three refined takes with VoxCPM2
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python - <<'PY'
+          import os, re, shutil, time
+          from pathlib import Path
+          from gradio_client import Client, handle_file
+          try:
+              from gradio_client.utils import QueueError
+          except Exception:
+              QueueError = Exception
+
+          body=os.environ.get('ISSUE_BODY','')
+          m=re.search(r'### Texto\s*\n+(.+?)(?:\n### |\Z)',body,re.S)
+          text=(m.group(1).strip() if m else body.strip()) or (
+              'Se liga nessa: o polvo tem três corações. Dois bombeiam sangue para as brânquias, '
+              'enquanto o terceiro manda sangue oxigenado para o resto do corpo. E tem mais: quando '
+              'ele nada, esse coração principal desacelera. Curioso demais, né?'
+          )
+          text=text[:320]
+          ref=handle_file('reference.wav')
+          out=Path('voice_tests_voxrefine')
+          client=Client('openbmb/VoxCPM-Demo', verbose=False)
+
+          styles=[
+              ('01_natural_refinada',
+               'Brazilian Portuguese male voice. Keep the reference timbre. Natural conversational delivery, relaxed but engaged, subtle expressive intonation, clean phrasing, human micro-pauses, never robotic and never like a radio announcer.'),
+              ('02_criador_conversando',
+               'Brazilian Portuguese male short-form content creator. Keep the reference timbre. Speak like telling an interesting fact directly to one friend: warm, spontaneous, lightly animated, clear emphasis on key words, small changes in pace, natural curiosity, no announcer voice.'),
+              ('03_criador_expressivo',
+               'Brazilian Portuguese male creator with lively but believable delivery. Keep the reference timbre. Stronger hook at the beginning, expressive rises and falls, purposeful pauses, smiling curiosity, emphasis on surprising facts, energetic without shouting, never theatrical or radio-like.'),
+          ]
+
+          def extract_path(res):
+              if isinstance(res,str): return res
+              if isinstance(res,dict):
+                  for k in ('path','name','url'):
+                      v=res.get(k)
+                      if isinstance(v,str) and v: return v
+              if isinstance(res,(tuple,list)):
+                  for v in res:
+                      try: return extract_path(v)
+                      except Exception: pass
+              raise RuntimeError(f'Formato inesperado: {res!r}')
+
+          def generate(control):
+              last=None
+              for attempt in range(1,16):
+                  try:
+                      # text, control, reference, ultimate_clone, prompt_text, cfg, normalize, denoise, api
+                      return client.predict(
+                          text,
+                          control,
+                          ref,
+                          False,
+                          '',
+                          2.0,
+                          True,
+                          False,
+                          api_name='/generate'
+                      )
+                  except Exception as exc:
+                      last=exc
+                      s=str(exc)
+                      if 'Queue is full' in s or 'busy' in s.lower() or '429' in s:
+                          time.sleep(min(20+attempt*3,50))
+                          continue
+                      raise
+              raise RuntimeError(f'Falhou após tentativas: {last}')
+
+          notes=[
+              'Motor: OpenBMB VoxCPM2 (Controllable Cloning)',
+              'Referência: ze_chatterbox_natural_viva, escolhida pelo usuário.',
+              'Sem EQ, sem pitch shift, sem formant shift, sem pós-processamento de timbre.',
+              'Denoise do Space desativado.',
+              '',
+              'Texto: '+text,
+              ''
+          ]
+
+          for slug,control in styles:
+              print('===',slug,'===',flush=True)
+              res=generate(control)
+              src=Path(extract_path(res))
+              if not src.exists() or src.stat().st_size < 5000:
+                  raise RuntimeError(f'Audio inválido: {src}')
+              # VoxCPM official Space outputs MP3; preserve exactly as generated.
+              suffix=src.suffix.lower() or '.mp3'
+              dst=out/f'ze_voxrefine_{slug}{suffix}'
+              shutil.copy2(src,dst)
+              notes += [slug+':', control, f'arquivo: {dst.name} ({dst.stat().st_size} bytes)', '']
+
+          (out/'README.txt').write_text('\n'.join(notes),encoding='utf-8')
+          PY
+
+      - name: Verify audio files
+        run: |
+          for f in voice_tests_voxrefine/*.*; do
+            case "$f" in
+              *.mp3|*.wav|*.flac|*.ogg)
+                echo "--- $f"
+                ffprobe -v error -show_entries format=duration,format_name -of default=nw=1 "$f" || exit 1
+                ;;
+            esac
+          done
+
+      - name: Upload refined voices
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-voxrefine-${{ github.run_id }}
+          path: voice_tests_voxrefine/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Comment issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl=`https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const ok='${{ job.status }}' === 'success';
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body: ok ? `✅ VoxCPM2 refinou os 3 takes a partir da voz Chatterbox escolhida. Artifact: **ze-voxrefine-${context.runId}**\n\n${runUrl}` : `❌ O refinamento VoxCPM2 falhou. Logs:\n\n${runUrl}`});
