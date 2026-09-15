@@ -1,0 +1,113 @@
+name: Ze Curioso Parler PT-BR Narrator Test
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  voices:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, '[Teste Parler]')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Dependencias
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install 'gradio_client>=1.3.0' >/dev/null
+          mkdir -p resultado_parler
+
+      - name: Gerar tres narradores novos
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python - <<'PY'
+          import os, re, shutil, time
+          from pathlib import Path
+          from gradio_client import Client
+
+          body=os.environ.get('ISSUE_BODY','')
+          m=re.search(r'### Texto\s*\n+(.+?)(?:\n### |\Z)', body, re.S)
+          text=(m.group(1).strip() if m else body.strip()) or (
+              'Se liga nessa, curioso! O polvo tem três corações: dois bombeiam sangue para as brânquias '
+              'e um para o resto do corpo. Agora você sabe! Bora pra próxima com o Zé!'
+          )
+          text=text[:290]
+          out=Path('resultado_parler')
+          client=Client('leomartinsjf/voz-clara-parler-ptbr', verbose=False)
+
+          voices=[
+              ('eduardo', "Eduardo's speech is a Brazilian Portuguese male voice in his early thirties, medium-low pitch, warm, very natural and conversational, clear studio audio, moderate pace, expressive like a short-video creator, never like a radio announcer."),
+              ('bruno', "Bruno's speech is a Brazilian Portuguese young adult male voice, confident and lively, medium pitch, friendly and spontaneous, clear studio audio, energetic creator delivery with natural pauses, never exaggerated and never like a commercial announcer."),
+              ('rafael', "Rafael's speech is a Brazilian Portuguese male voice, relaxed and charismatic, slightly low pitch, close conversational tone, clean studio audio, curious storyteller rhythm, natural human phrasing, no radio-announcer style."),
+          ]
+
+          def find_audio(x):
+              if isinstance(x,str):
+                  p=Path(x)
+                  if p.exists() and p.is_file(): return p
+              if isinstance(x,dict):
+                  for k in ('path','name','value'):
+                      v=x.get(k)
+                      if isinstance(v,str):
+                          p=Path(v)
+                          if p.exists() and p.is_file(): return p
+                  for v in x.values():
+                      p=find_audio(v)
+                      if p:return p
+              if isinstance(x,(list,tuple)):
+                  for v in x:
+                      p=find_audio(v)
+                      if p:return p
+              return None
+
+          notes=[f'Texto: {text}', 'Motor: freds0/parler-tts-mini-v1.1-ptbr via Space voz-clara-parler-ptbr', 'Sem EQ/pitch/formant pos-processamento.', '']
+          for slug,desc in voices:
+              last=None
+              for attempt in range(1,5):
+                  try:
+                      print(f'[>] {slug} tentativa {attempt}')
+                      result=client.predict(text, desc, api_name='/generate')
+                      src=find_audio(result)
+                      if src is None:
+                          raise RuntimeError(f'Retorno sem arquivo: {result!r}')
+                      dst=out/f'ze_parler_{slug}{src.suffix or ".wav"}'
+                      shutil.copy2(src,dst)
+                      notes += [f'{slug}: {desc}', f'arquivo: {dst.name}', '']
+                      print('[OK]',dst)
+                      break
+                  except Exception as e:
+                      last=e
+                      print('[!]',repr(e))
+                      if attempt<4: time.sleep(20*attempt)
+              else:
+                  raise RuntimeError(f'{slug} falhou: {last}')
+
+          (out/'README.txt').write_text('\n'.join(notes),encoding='utf-8')
+          PY
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-parler-ptbr-${{ github.run_id }}
+          path: resultado_parler/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Responder no issue
+        if: ${{ github.event_name == 'issues' && always() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ok='${{ job.status }}'==='success';
+            const runUrl=`https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:ok?`✅ Parler PT-BR gerou Eduardo, Bruno e Rafael. Artifact: **ze-parler-ptbr-${context.runId}**\n\n${runUrl}`:`❌ Parler PT-BR falhou. Logs: ${runUrl}`});
