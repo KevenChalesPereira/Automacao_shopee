@@ -1,0 +1,102 @@
+name: Zé Curioso Voice Reference Samples
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  samples:
+    if: ${{ startsWith(github.event.issue.title, '[Amostras voz]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Instalar dependências
+        run: |
+          python3 -m pip install --user --upgrade huggingface_hub >/dev/null
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y unzip ffmpeg >/dev/null
+          mkdir -p samples/accentai samples/recife
+
+      - name: Baixar Accent.ai autorizado e amostra Recife
+        run: |
+          python3 - <<'PY'
+          from huggingface_hub import hf_hub_download
+          from pathlib import Path
+          import shutil, zipfile
+
+          out=Path('samples')
+          # Dataset Apache-2.0 com Termo de Autorização de Voz no próprio repositório.
+          z=hf_hub_download(
+              repo_id='frassonm/accentai_nordestino_leve',
+              repo_type='dataset',
+              filename='accentai_dataset_nordestino_01 (1).zip'
+          )
+          with zipfile.ZipFile(z) as f:
+              f.extractall('/tmp/accentai')
+          mp3s=sorted(Path('/tmp/accentai').rglob('*.mp3'))
+          if not mp3s:
+              raise RuntimeError('Nenhum MP3 encontrado no Accent.ai')
+          # Copia as 10 amostras mais longas para audição; sem processamento de pitch/EQ.
+          def size(p): return p.stat().st_size
+          picks=sorted(mp3s,key=size,reverse=True)[:10]
+          for i,p in enumerate(picks,1):
+              shutil.copy2(p,out/'accentai'/f'accentai_{i:02d}.mp3')
+
+          # Recife: boa referência de sotaque para comparação. NÃO será usada para clonagem
+          # até confirmarmos autorização específica da voz além da licença do dataset.
+          r=hf_hub_download(
+              repo_id='tech4humans/Audio-Transcription-Models-Comparison-PT-BR',
+              repo_type='dataset',
+              filename='audio/NordestePEsotaque.wav'
+          )
+          shutil.copy2(r,out/'recife'/'NordestePEsotaque.wav')
+          print('Accent.ai:',len(mp3s),'arquivos; selecionados',len(picks))
+          print('Recife:',r)
+          PY
+
+      - name: Criar montagem Accent.ai para audição
+        run: |
+          # Apenas concatena 5 trechos; não altera timbre, pitch ou formante.
+          python3 - <<'PY'
+          from pathlib import Path
+          files=sorted(Path('samples/accentai').glob('*.mp3'))[:5]
+          Path('/tmp/list.txt').write_text('\n'.join(f"file '{p.resolve()}'" for p in files),encoding='utf-8')
+          PY
+          ffmpeg -y -f concat -safe 0 -i /tmp/list.txt -c:a pcm_s16le samples/accentai_montagem.wav >/dev/null 2>&1
+
+      - name: Notas de licença
+        run: |
+          cat > samples/README.txt <<'EOF'
+          Accent.ai nordestino leve:
+          - Fonte: frassonm/accentai_nordestino_leve
+          - Licença informada no dataset: Apache-2.0
+          - O card informa Termo_Autorizacao_Voz_AccentAI.pdf
+          - 30 gravações curtas, sotaque nordestino leve.
+          - Arquivos deste artifact estão sem EQ/pitch/formant.
+
+          Recife (tech4humans):
+          - Fonte: tech4humans/Audio-Transcription-Models-Comparison-PT-BR
+          - Dataset Apache-2.0 e áudio explicitamente descrito como pessoa nascida e criada em Recife.
+          - Usar apenas para comparar sotaque por enquanto; não usar como voz clonada até verificar autorização específica do locutor.
+          EOF
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-voice-reference-samples-${{ github.run_id }}
+          path: samples/**
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Responder no issue
+        if: ${{ always() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl=`https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const ok='${{ job.status }}'==='success';
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:ok?`✅ Amostras de voz baixadas. Artifact: **ze-voice-reference-samples-${context.runId}**\n\n${runUrl}`:`❌ Falhou ao buscar amostras.\n\n${runUrl}`});
