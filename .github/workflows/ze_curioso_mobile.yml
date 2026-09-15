@@ -28,17 +28,11 @@ jobs:
         with:
           ref: ze-curioso-v24
 
-      - name: Cache da voz Supertonic
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/supertonic3
-          key: supertonic3-v1-${{ runner.os }}
-
       - name: Dependências
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-dejavu-core
-          python3 -m pip install --break-system-packages edge-tts pillow supertonic
+          python3 -m pip install --break-system-packages edge-tts pillow
 
       - name: Extrair tema
         env:
@@ -94,13 +88,9 @@ jobs:
           TOPIC="$(cat /tmp/topic.txt)"
           python3 ze_curioso_mobile_cloud.py --tema "$TOPIC" --out-dir mobile_job
 
-      - name: Gerar comparação de vozes pt-BR
+      - name: Render com voz pt-BR nativa
         run: |
-          python3 cloud/voice_audition.py mobile_job resultado_mobile/voice_tests
-
-      - name: Render
-        run: |
-          python3 cloud/render_ze_curioso_final_v8.py mobile_job resultado_mobile
+          python3 cloud/render_ze_curioso_ptbr_v9.py mobile_job resultado_mobile
 
       - name: QA
         run: |
@@ -119,8 +109,6 @@ jobs:
             resultado_mobile/diagnostico_render.json
             resultado_mobile/qa_report.json
             resultado_mobile/qa_report.txt
-            resultado_mobile/voice_tests/*.mp3
-            resultado_mobile/voice_tests/README.txt
           if-no-files-found: error
           retention-days: 7
 
@@ -132,7 +120,7 @@ jobs:
             const ok = '${{ job.status }}' === 'success';
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = ok
-              ? `✅ Vídeo gerado. Abra o workflow e baixe o artifact **ze-curioso-mobile-${context.runId}**:\n\n${runUrl}`
+              ? `✅ Vídeo pt-BR gerado. Artifact **ze-curioso-mobile-${context.runId}**:\n\n${runUrl}`
               : `❌ A geração falhou. Abra o workflow para ver o erro:\n\n${runUrl}`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
