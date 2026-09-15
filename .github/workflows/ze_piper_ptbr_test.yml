@@ -1,0 +1,92 @@
+name: Ze Curioso Piper PT-BR Voice Test
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  voices:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, '[Teste Piper]')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar Piper
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install piper-tts >/dev/null
+          mkdir -p resultado_piper modelos
+
+      - name: Baixar modelos pt-BR
+        run: |
+          set -e
+          base='https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR'
+          for spec in \
+            'cadu/medium/pt_BR-cadu-medium' \
+            'faber/medium/pt_BR-faber-medium' \
+            'jeff/medium/pt_BR-jeff-medium' \
+            'edresson/low/pt_BR-edresson-low'
+          do
+            name="${spec##*/}"
+            wget -q --show-progress "$base/$spec.onnx" -O "modelos/$name.onnx"
+            wget -q "$base/$spec.onnx.json" -O "modelos/$name.onnx.json"
+          done
+
+      - name: Gerar quatro amostras novas
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python - <<'PY'
+          import os,re,subprocess
+          from pathlib import Path
+          body=os.environ.get('ISSUE_BODY','')
+          m=re.search(r'### Texto\s*\n+(.+?)(?:\n### |\Z)', body, re.S)
+          text=(m.group(1).strip() if m else body.strip()) or (
+            'Se liga nessa, curioso! O polvo tem três corações: dois bombeiam sangue para as brânquias '
+            'e um para o resto do corpo. O terceiro distribui sangue oxigenado aos músculos e aos órgãos. '
+            'Agora você sabe! Bora pra próxima com o Zé!'
+          )
+          voices=['pt_BR-cadu-medium','pt_BR-faber-medium','pt_BR-jeff-medium','pt_BR-edresson-low']
+          out=Path('resultado_piper')
+          notes=['Texto: '+text,'Motor: Piper/Rhasspy pt-BR','Sem alterar pitch/formant; amostra bruta de cada voz.','']
+          for voice in voices:
+            model=Path('modelos')/(voice+'.onnx')
+            wav=out/(voice+'.wav')
+            print('[>]',voice,flush=True)
+            p=subprocess.run(['piper','--model',str(model),'--output_file',str(wav)],input=text,text=True,capture_output=True)
+            print(p.stdout)
+            print(p.stderr)
+            if p.returncode==0 and wav.exists() and wav.stat().st_size>1000:
+              notes.append(f'{voice}: OK ({wav.stat().st_size} bytes)')
+              print('[OK]',wav,flush=True)
+            else:
+              notes.append(f'{voice}: FALHOU rc={p.returncode} {p.stderr[-500:]}')
+              if wav.exists(): wav.unlink()
+          (out/'README.txt').write_text('\n'.join(notes),encoding='utf-8')
+          PY
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-piper-ptbr-${{ github.run_id }}
+          path: resultado_piper/*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Responder no issue
+        if: ${{ github.event_name == 'issues' && always() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ok='${{ job.status }}'==='success';
+            const runUrl=`https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({owner:context.repo.owner,repo:context.repo.repo,issue_number:context.issue.number,body:ok?`✅ Piper pt-BR gerou as amostras. Artifact: **ze-piper-ptbr-${context.runId}**\n\n${runUrl}`:`❌ Teste Piper falhou. Logs: ${runUrl}`});
