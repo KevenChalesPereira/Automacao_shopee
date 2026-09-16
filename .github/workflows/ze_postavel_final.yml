@@ -35,17 +35,18 @@ jobs:
           python -m py_compile \
             cloud/ze_postavel_woodfrog_final.py \
             cloud/ze_postavel_woodfrog_card_sync.py \
-            cloud/ze_postavel_woodfrog_continuous_bubble.py
+            cloud/ze_postavel_woodfrog_continuous_bubble.py \
+            cloud/ze_postavel_woodfrog_scene_voice_bubble_v4.py
 
-      - name: Render continuous voice with captions only in Ze speech bubble
+      - name: Render V4 scene voice with strict QA and bubble-only captions
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_continuous_bubble.py
+        run: python cloud/ze_postavel_woodfrog_scene_voice_bubble_v4.py
 
-      - name: Upload continuous-bubble artifact
+      - name: Upload V4 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-continuous-bubble-${{ github.run_id }}
+          name: ze-postavel-v4-clean-voice-bubble-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -54,8 +55,8 @@ jobs:
             post_final/qa.json
             post_final/bubble_timing.json
             post_final/asr_transcript.txt
-            post_final/alignment_words.json
-            post_final/audio/narration_continuous.wav
+            post_final/audio/narration_scene_clean.wav
+            post_final/audio/scene_*_accepted.wav
             post_final/scenes/scene_*.jpg
             post_final/bubble_frames/*.jpg
           if-no-files-found: error
@@ -73,6 +74,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ Render V3 concluído: áudio contínuo sem microcortes + legendas exclusivamente dentro do balão do Zé. Artifact: **ze-postavel-continuous-bubble-${context.runId}**\n\n${runUrl}`
-                : `❌ Falha no render V3 continuous-bubble. Logs:\n\n${runUrl}`
+                ? `✅ Render V4 concluído: 5 tomadas completas (uma por cena), QA rígido de palavras críticas e legendas exclusivamente no balão do Zé. Artifact: **ze-postavel-v4-clean-voice-bubble-${context.runId}**\n\n${runUrl}`
+                : `❌ V4 reprovado ou falhou. Isso significa que o pipeline não aceitou um áudio ruim. Logs:\n\n${runUrl}`
             });
