@@ -42,17 +42,18 @@ jobs:
             cloud/ze_postavel_woodfrog_voice_v5_scene4_final2.py \
             cloud/ze_postavel_woodfrog_voice_final_locked.py \
             cloud/ze_postavel_woodfrog_voice_v6_single_take.py \
-            cloud/ze_postavel_woodfrog_voice_v6_retry.py
+            cloud/ze_postavel_woodfrog_voice_v6_retry.py \
+            cloud/ze_postavel_woodfrog_voice_v6_2_final.py
 
-      - name: Render final V6 single-take stable voice
+      - name: Render final V6.2 locked single-take voice
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_voice_v6_retry.py
+        run: python cloud/ze_postavel_woodfrog_voice_v6_2_final.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-FINAL-single-take-${{ github.run_id }}
+          name: ze-postavel-FINAL-v6-2-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -82,6 +83,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ V6 concluída: narração inteira gerada em UMA tomada contínua, texto final aprovado e sem reinício de entonação entre cenas. Seleção por dicção + ritmo + estabilidade de pitch/energia. Artifact: **ze-postavel-FINAL-single-take-${context.runId}**\n\n${runUrl}`
-                : `❌ V6 reprovada/falhou. A tomada contínua não passou simultaneamente nos gates de texto, ritmo e estabilidade. Logs:\n\n${runUrl}`
+                ? `✅ V6.2 concluída: texto final travado, narração inteira em UMA tomada contínua, seleção por fidelidade + estabilidade e ajuste global de ritmo sem cortes. Artifact: **ze-postavel-FINAL-v6-2-${context.runId}**\n\n${runUrl}`
+                : `❌ V6.2 reprovada/falhou. Nenhuma tomada passou simultaneamente nos gates de texto e estabilidade, ou ocorreu erro de render. Logs:\n\n${runUrl}`
             });
