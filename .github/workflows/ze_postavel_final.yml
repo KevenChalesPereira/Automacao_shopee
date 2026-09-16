@@ -40,17 +40,18 @@ jobs:
             cloud/ze_postavel_woodfrog_voice_v5_final.py \
             cloud/ze_postavel_woodfrog_voice_v5_scene4_final.py \
             cloud/ze_postavel_woodfrog_voice_v5_scene4_final2.py \
-            cloud/ze_postavel_woodfrog_voice_final_locked.py
+            cloud/ze_postavel_woodfrog_voice_final_locked.py \
+            cloud/ze_postavel_woodfrog_voice_v6_single_take.py
 
-      - name: Render final locked V5 with revived scene 4 only
+      - name: Render final V6 single-take stable voice
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_voice_final_locked.py
+        run: python cloud/ze_postavel_woodfrog_voice_v6_single_take.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-FINAL-voice-alive-${{ github.run_id }}
+          name: ze-postavel-FINAL-single-take-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -59,8 +60,10 @@ jobs:
             post_final/qa.json
             post_final/bubble_timing.json
             post_final/asr_transcript.txt
-            post_final/audio/narration_scene_clean.wav
-            post_final/audio/scene_*_accepted.wav
+            post_final/alignment_words.json
+            post_final/voice_consistency.json
+            post_final/audio/narration_continuous.wav
+            post_final/audio/single_take_candidate_*.wav
             post_final/scenes/scene_*.jpg
             post_final/bubble_frames/*.jpg
           if-no-files-found: error
@@ -78,6 +81,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ FINAL concluído: cenas 1, 2, 3 e 5 preservadas bit a bit da V5; somente a cena 4 foi regenerada. Gate final exige dicção correta, "descongela" reconhecido e ritmo >=150 WPM. Artifact: **ze-postavel-FINAL-voice-alive-${context.runId}**\n\n${runUrl}`
-                : `❌ FINAL reprovado/falhou. A cena 4 não passou simultaneamente em dicção, palavra "descongela" e ritmo. Logs:\n\n${runUrl}`
+                ? `✅ V6 concluída: narração inteira gerada em UMA tomada contínua, sem reinício de entonação entre cenas. Seleção por dicção + ritmo + estabilidade de pitch/energia. Artifact: **ze-postavel-FINAL-single-take-${context.runId}**\n\n${runUrl}`
+                : `❌ V6 reprovada/falhou. Nenhuma tomada completa passou simultaneamente nos gates de dicção, ritmo e estabilidade. Logs:\n\n${runUrl}`
             });
