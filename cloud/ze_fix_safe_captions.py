@@ -67,7 +67,7 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
 
     events = []
     t = 0.0
-    for dur, parts in zip(durations, CAPTIONS):
+    for scene_idx, (dur, parts) in enumerate(zip(durations, CAPTIONS)):
         weights = [max(1, len(p.replace("\\N", " ").split())) for p in parts]
         total = sum(weights)
         cur = t
@@ -75,6 +75,8 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
             seg = dur * weight / total
             end = cur + seg
             safe = part.replace("{", "").replace("}", "")
+            if scene_idx == 4:
+                safe = "{\\pos(540,965)}" + safe
             events.append(
                 f"Dialogue: 0,{ass_time(cur)},{ass_time(end)},Cap,,0,0,0,,{safe}"
             )
@@ -122,7 +124,8 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
         "caption_font_size": 44,
         "caption_horizontal_margin": 90,
         "caption_bottom_margin": 245,
-        "caption_revision": "safe-area-v2",
+        "final_scene_caption_position": [540, 965],
+        "caption_revision": "safe-area-v3",
     }
     qa["passed"] = all(
         [qa["duration_target_ok"], qa["vertical_1080x1920_ok"], qa["h264_ok"], qa["aac_ok"]]
