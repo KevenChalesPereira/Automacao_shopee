@@ -47,12 +47,13 @@ jobs:
             cloud/ze_postavel_woodfrog_voice_v6_3_calm.py \
             cloud/ze_postavel_woodfrog_v6_4_locked.py \
             cloud/ze_postavel_woodfrog_v6_4_brandfix.py \
-            cloud/ze_postavel_woodfrog_v6_4_finalsplit.py
+            cloud/ze_postavel_woodfrog_v6_4_finalsplit.py \
+            cloud/ze_postavel_woodfrog_v6_4_carrierfix.py
 
       - name: Render locked V6.4 word-pop template
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_v6_4_finalsplit.py
+        run: python cloud/ze_postavel_woodfrog_v6_4_carrierfix.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
@@ -75,6 +76,7 @@ jobs:
             post_final/audio/signoff_final.wav
             post_final/audio/single_take_candidate_*.wav
             post_final/audio/signoff_candidate_*.wav
+            post_final/audio/signoff_carrier_candidate_*.wav
             post_final/scenes/scene_*.jpg
             post_final/bubble_frames/*.jpg
           if-no-files-found: error
@@ -92,6 +94,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ V6.4 LOCKED concluída: corpo em tomada contínua calma, bordão curto validado como Zé Curioso, balão pequeno palavra-por-palavra em POP. Artifact: **ze-postavel-LOCKED-v6-4-${context.runId}**\n\n${runUrl}`
+                ? `✅ V6.4 LOCKED concluída: corpo em tomada contínua calma, bordão validado como Zé Curioso via carrier phrase, balão pequeno palavra-por-palavra em POP. Artifact: **ze-postavel-LOCKED-v6-4-${context.runId}**\n\n${runUrl}`
                 : `❌ V6.4 reprovada/falhou. Logs:\n\n${runUrl}`
             });
