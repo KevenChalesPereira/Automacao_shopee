@@ -50,17 +50,18 @@ jobs:
             cloud/ze_postavel_woodfrog_v6_4_finalsplit.py \
             cloud/ze_postavel_woodfrog_v6_4_carrierfix.py \
             cloud/ze_postavel_woodfrog_v6_4_finalpolish.py \
-            cloud/ze_postavel_woodfrog_v6_4_simplebubble.py
+            cloud/ze_postavel_woodfrog_v6_4_simplebubble.py \
+            cloud/ze_postavel_woodfrog_v6_4_voicefixed_simplebubble.py
 
-      - name: Render simplified V6.4 bubble
+      - name: Render final template with voice lock
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_v6_4_simplebubble.py
+        run: python cloud/ze_postavel_woodfrog_v6_4_voicefixed_simplebubble.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-SIMPLE-v6-4-${{ github.run_id }}
+          name: ze-postavel-FINAL-VOICELOCK-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -76,6 +77,7 @@ jobs:
             post_final/final_voice_architecture.json
             post_final/audio/narration_continuous.wav
             post_final/audio/signoff_final.wav
+            post_final/audio/signoff_voice_lock_*.wav
             post_final/audio/single_take_candidate_*.wav
             post_final/audio/signoff_candidate_*.wav
             post_final/scenes/scene_*.jpg
@@ -95,6 +97,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ SIMPLE BUBBLE concluída: palavra falada destacada, balão com um POP por grupo e bordão anterior restaurado. Artifact: **ze-postavel-SIMPLE-v6-4-${context.runId}**\n\n${runUrl}`
-                : `❌ SIMPLE BUBBLE falhou/reprovou. Logs:\n\n${runUrl}`
+                ? `✅ FINAL VOICE LOCK concluído: POP simples aprovado + seleção de voz por fingerprint. Artifact: **ze-postavel-FINAL-VOICELOCK-${context.runId}**\n\n${runUrl}`
+                : `❌ FINAL VOICE LOCK falhou/reprovou. Logs:\n\n${runUrl}`
             });
