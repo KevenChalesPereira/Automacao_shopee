@@ -43,17 +43,18 @@ jobs:
             cloud/ze_postavel_woodfrog_voice_final_locked.py \
             cloud/ze_postavel_woodfrog_voice_v6_single_take.py \
             cloud/ze_postavel_woodfrog_voice_v6_retry.py \
-            cloud/ze_postavel_woodfrog_voice_v6_2_final.py
+            cloud/ze_postavel_woodfrog_voice_v6_2_final.py \
+            cloud/ze_postavel_woodfrog_voice_v6_3_calm.py
 
-      - name: Render final V6.2 locked single-take voice
+      - name: Render final V6.3 calm explanatory voice
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_voice_v6_2_final.py
+        run: python cloud/ze_postavel_woodfrog_voice_v6_3_calm.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-FINAL-v6-2-${{ github.run_id }}
+          name: ze-postavel-FINAL-v6-3-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -83,6 +84,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ V6.2 concluída: texto final travado, narração inteira em UMA tomada contínua, seleção por fidelidade + estabilidade e ajuste global de ritmo sem cortes. Artifact: **ze-postavel-FINAL-v6-2-${context.runId}**\n\n${runUrl}`
-                : `❌ V6.2 reprovada/falhou. Nenhuma tomada passou simultaneamente nos gates de texto e estabilidade, ou ocorreu erro de render. Logs:\n\n${runUrl}`
+                ? `✅ V6.3 concluída: voz contínua com direção calma/explicativa, sem expressão constante de alerta, mantendo o take 02 e o texto final travado. Artifact: **ze-postavel-FINAL-v6-3-${context.runId}**\n\n${runUrl}`
+                : `❌ V6.3 reprovada/falhou. Nenhuma tomada passou nos gates de texto/estabilidade, ou ocorreu erro de render. Logs:\n\n${runUrl}`
             });
