@@ -49,17 +49,18 @@ jobs:
             cloud/ze_postavel_woodfrog_v6_4_brandfix.py \
             cloud/ze_postavel_woodfrog_v6_4_finalsplit.py \
             cloud/ze_postavel_woodfrog_v6_4_carrierfix.py \
-            cloud/ze_postavel_woodfrog_v6_4_finalpolish.py
+            cloud/ze_postavel_woodfrog_v6_4_finalpolish.py \
+            cloud/ze_postavel_woodfrog_v6_4_simplebubble.py
 
-      - name: Render locked V6.4 final polish
+      - name: Render simplified V6.4 bubble
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_v6_4_finalpolish.py
+        run: python cloud/ze_postavel_woodfrog_v6_4_simplebubble.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-LOCKED-v6-4-${{ github.run_id }}
+          name: ze-postavel-SIMPLE-v6-4-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -77,7 +78,6 @@ jobs:
             post_final/audio/signoff_final.wav
             post_final/audio/single_take_candidate_*.wav
             post_final/audio/signoff_candidate_*.wav
-            post_final/audio/signoff_carrier_candidate_*.wav
             post_final/scenes/scene_*.jpg
             post_final/bubble_frames/*.jpg
           if-no-files-found: error
@@ -95,6 +95,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ V6.4 FINAL POLISH concluída: bordão com cauda anti-corte e POP palavra-a-palavra legível. Artifact: **ze-postavel-LOCKED-v6-4-${context.runId}**\n\n${runUrl}`
-                : `❌ V6.4 final polish reprovada/falhou. Logs:\n\n${runUrl}`
+                ? `✅ SIMPLE BUBBLE concluída: palavra falada destacada, balão com um POP por grupo e bordão anterior restaurado. Artifact: **ze-postavel-SIMPLE-v6-4-${context.runId}**\n\n${runUrl}`
+                : `❌ SIMPLE BUBBLE falhou/reprovou. Logs:\n\n${runUrl}`
             });
