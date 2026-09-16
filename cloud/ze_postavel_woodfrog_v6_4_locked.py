@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -21,6 +23,7 @@ SCENES = cont.SCENES
 VIDEO = cont.VIDEO
 BUBBLE_FRAMES = cont.BUBBLE_FRAMES
 FONT_BOLD = cont.FONT_BOLD
+W, H = cont.W, cont.H
 
 # Mantém toda a leitura calma da V6.3. SOMENTE a assinatura ganha presença.
 v6.VOICE_CONTROL = (
@@ -141,7 +144,13 @@ def draw_word_bubble(base_img: Image.Image, word: str, side: str, accent: str, s
     d = ImageDraw.Draw(im)
     box, tail = bubble_geometry(side, scale)
     d.polygon(tail, fill=(255, 255, 255, 248))
-    d.rounded_rectangle(box, radius=max(22, int(34 * scale)), fill=(255, 255, 255, 248), outline=accent, width=max(4, int(6 * scale)))
+    d.rounded_rectangle(
+        box,
+        radius=max(22, int(34 * scale)),
+        fill=(255, 255, 255, 248),
+        outline=accent,
+        width=max(4, int(6 * scale)),
+    )
 
     usable = max(120, (box[2] - box[0]) - 48)
     chosen = None
@@ -188,71 +197,159 @@ def generate_v64() -> tuple[Path, list[dict], float, str]:
     return audio, words, ratio, transcript
 
 
+def _pop_scale(item: dict, t: float) -> tuple[float, int]:
+    dur = max(0.075, float(item["end"]) - float(item["start"]))
+    # Em 30 fps, 40 ms + 50 ms garante visualmente cerca de três quadros de POP.
+    d1 = min(0.040, max(0.034, dur * 0.22))
+    d2 = min(0.050, max(0.034, dur * 0.28))
+    if d1 + d2 > dur * 0.78:
+        factor = (dur * 0.72) / max(0.001, d1 + d2)
+        d1 *= factor
+        d2 *= factor
+    elapsed = max(0.0, t - float(item["start"]))
+    if elapsed < d1:
+        return 0.82, 1
+    if elapsed < d1 + d2:
+        return 1.08, 2
+    return 1.00, 3
+
+
 def render_word_pop_video(_block_timing: list[dict], audio: Path) -> None:
+    """Renderiza a linha do tempo inteira em UMA passagem H.264.
+
+    A versão anterior criava centenas de mini-MP4s e concatenava com stream-copy;
+    timestamps de segmentos muito curtos colapsavam a duração. Aqui cada quadro
+    de 30 fps é enviado diretamente para um único processo FFmpeg. O áudio
+    continua sendo a tomada única original, sem cortes.
+    """
     words = json.loads((POST / "alignment_words.json").read_text(encoding="utf-8"))
     timing, word_ratio = build_word_timing(words)
     if word_ratio < 0.90:
         raise RuntimeError(f"Word bubble alignment baixo: {word_ratio:.4f}")
 
     BUBBLE_FRAMES.mkdir(parents=True, exist_ok=True)
-    pieces = VIDEO / "word_pop_segments.txt"
-    pieces.write_text("", encoding="utf-8")
     audio_duration = cont.probe_duration(audio)
-    cursor = 0.0
-    segment_no = 0
+    fps = 30
+    total_frames = int(math.ceil(audio_duration * fps))
 
-    def add_segment(frame_path: Path, duration: float) -> None:
-        nonlocal segment_no
-        if duration <= 0.018:
-            return
-        segment_no += 1
-        out = VIDEO / f"wordpop_{segment_no:04d}.mp4"
-        cont.render_still_segment(frame_path, duration, out, segment_no)
-        with pieces.open("a", encoding="utf-8") as f:
-            f.write(f"file '{out.resolve()}'\n")
+    scene_images = {
+        scene: Image.open(SCENES / f"scene_{scene:02d}.jpg").convert("RGBA")
+        for scene in range(1, 6)
+    }
+    plain_raw = {
+        scene: img.convert("RGB").tobytes()
+        for scene, img in scene_images.items()
+    }
 
-    for item in timing:
-        scene = int(item["scene"])
-        scene_path = SCENES / f"scene_{scene:02d}.jpg"
-        if item["start"] > cursor + 0.018:
-            add_segment(scene_path, item["start"] - cursor)
-            cursor = item["start"]
-
-        cfg = card.SCENE_CONFIG[scene - 1]
-        base_img = Image.open(scene_path).convert("RGBA")
-        dur = max(0.075, item["end"] - item["start"])
-        # Pop curto: 82% -> 108% -> 100%.
-        d1 = min(0.035, dur * 0.24)
-        d2 = min(0.045, max(0.02, dur * 0.30))
-        if d1 + d2 > dur * 0.75:
-            factor = (dur * 0.70) / max(0.001, d1 + d2)
-            d1 *= factor
-            d2 *= factor
-        phases = [(0.82, d1), (1.08, d2), (1.00, max(0.0, dur - d1 - d2))]
-        for phase_idx, (scale, phase_dur) in enumerate(phases, 1):
-            if phase_dur <= 0.018:
-                continue
-            frame = draw_word_bubble(base_img, item["display"], cfg["side"], cfg["accent"], scale)
-            fp = BUBBLE_FRAMES / f"word_{item['word_index']:03d}_{phase_idx}.jpg"
-            frame.convert("RGB").save(fp, quality=94)
-            add_segment(fp, phase_dur)
-        cursor = item["end"]
-
-    if cursor < audio_duration - 0.018:
-        last_scene = int(timing[-1]["scene"]) if timing else 5
-        add_segment(SCENES / f"scene_{last_scene:02d}.jpg", audio_duration - cursor)
+    scene_starts: dict[int, float] = {1: 0.0}
+    for scene in range(2, 6):
+        starts = [float(x["start"]) for x in timing if int(x["scene"]) == scene]
+        if starts:
+            scene_starts[scene] = min(starts)
 
     visual = VIDEO / "word_pop_visual.mp4"
-    v4.run([
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(pieces),
-        "-c", "copy", str(visual),
-    ])
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "rawvideo", "-pix_fmt", "rgb24",
+        "-s", f"{W}x{H}", "-r", str(fps), "-i", "-",
+        "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "19",
+        "-g", str(fps), "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        str(visual),
+    ]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    if proc.stdin is None:
+        raise RuntimeError("FFmpeg não abriu stdin para render V6.4")
+
+    word_ptr = 0
+    last_key = None
+    current_raw: bytes | None = None
+    saved_keys: set[tuple] = set()
+
+    try:
+        for frame_index in range(total_frames):
+            # Centro temporal do frame evita antecipar uma palavra por um quadro.
+            t = min(audio_duration, (frame_index + 0.5) / fps)
+
+            scene = 1
+            for candidate_scene, start in sorted(scene_starts.items()):
+                if t >= start:
+                    scene = candidate_scene
+                else:
+                    break
+
+            while word_ptr + 1 < len(timing) and t >= float(timing[word_ptr]["end"]):
+                word_ptr += 1
+
+            item = timing[word_ptr] if timing else None
+            active = (
+                item is not None
+                and float(item["start"]) <= t < float(item["end"])
+            )
+
+            if active:
+                scene = int(item["scene"])
+                scale, phase = _pop_scale(item, t)
+                key = (scene, int(item["word_index"]), phase)
+            else:
+                key = (scene, 0, 0)
+
+            if key != last_key:
+                if active and item is not None:
+                    cfg = card.SCENE_CONFIG[scene - 1]
+                    frame = draw_word_bubble(
+                        scene_images[scene],
+                        str(item["display"]),
+                        cfg["side"],
+                        cfg["accent"],
+                        scale,
+                    )
+                    current_raw = frame.convert("RGB").tobytes()
+                    if key not in saved_keys:
+                        fp = BUBBLE_FRAMES / f"word_{int(item['word_index']):03d}_{phase}.jpg"
+                        frame.convert("RGB").save(fp, quality=92)
+                        saved_keys.add(key)
+                else:
+                    current_raw = plain_raw[scene]
+                last_key = key
+
+            if current_raw is None:
+                current_raw = plain_raw[scene]
+            proc.stdin.write(current_raw)
+    except BrokenPipeError as exc:
+        raise RuntimeError("FFmpeg encerrou durante o render contínuo do POP") from exc
+    finally:
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+
+    return_code = proc.wait()
+    if return_code != 0:
+        raise RuntimeError(f"FFmpeg word-pop retornou código {return_code}")
+
+    visual_duration = cont.probe_duration(visual)
+    if abs(visual_duration - audio_duration) > 0.12:
+        raise RuntimeError(
+            f"Timeline word-pop fora da duração do áudio: video={visual_duration:.3f}s audio={audio_duration:.3f}s"
+        )
+
     final = POST / "ze_curioso_sapo_congela_final.mp4"
     v4.run([
         "ffmpeg", "-y", "-i", str(visual), "-i", str(audio),
         "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         "-shortest", "-movflags", "+faststart", str(final),
     ])
+    print(
+        "WORD_POP_SINGLE_PASS_OK",
+        json.dumps({
+            "audio_duration": round(audio_duration, 3),
+            "visual_duration": round(visual_duration, 3),
+            "frames": total_frames,
+            "fps": fps,
+            "word_alignment": round(word_ratio, 4),
+        }),
+        flush=True,
+    )
 
 
 def qa_v64(asr_ratio: float, alignment_ratio: float, timing: list[dict]) -> None:
@@ -271,6 +368,7 @@ def qa_v64(asr_ratio: float, alignment_ratio: float, timing: list[dict]) -> None
         "signoff": "Zé Curioso: parece mentira, mas é real.",
         "signoff_direction": "slightly stronger identity/lift/firm landing; body remains calm explanatory",
         "signoff_post_gain": "1.12x (~+1 dB), continuous file, no splice",
+        "video_render_strategy": "single continuous rawvideo -> one H.264 encode",
     })
     qa["passed"] = bool(qa.get("passed")) and float(word_data["alignment_ratio"]) >= 0.90
     qa_path.write_text(json.dumps(qa, ensure_ascii=False, indent=2), encoding="utf-8")
