@@ -47,13 +47,14 @@ jobs:
             cloud/ze_postavel_woodfrog_v6_4_finalpolish.py \
             cloud/ze_postavel_woodfrog_v6_4_simplebubble.py \
             cloud/ze_postavel_woodfrog_v6_4_voicefixed_simplebubble.py \
-            cloud/ze_studio_dynamic.py
+            cloud/ze_studio_dynamic.py \
+            cloud/ze_studio_dynamic_prod.py
 
       - name: Resolve episode and render approved template
         env:
           GH_TOKEN: ${{ github.token }}
           ZE_REQUEST_JSON: ${{ github.event.issue.body }}
-        run: python cloud/ze_studio_dynamic.py
+        run: python cloud/ze_studio_dynamic_prod.py
 
       - name: Upload dynamic artifact
         uses: actions/upload-artifact@v4
