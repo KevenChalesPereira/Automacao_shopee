@@ -38,12 +38,13 @@ jobs:
             cloud/ze_postavel_woodfrog_continuous_bubble.py \
             cloud/ze_postavel_woodfrog_scene_voice_bubble_v4.py \
             cloud/ze_postavel_woodfrog_voice_v5_final.py \
-            cloud/ze_postavel_woodfrog_voice_v5_scene4_final.py
+            cloud/ze_postavel_woodfrog_voice_v5_scene4_final.py \
+            cloud/ze_postavel_woodfrog_voice_v5_scene4_final2.py
 
       - name: Render final locked V5 with revived scene 4 only
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_voice_v5_scene4_final.py
+        run: python cloud/ze_postavel_woodfrog_voice_v5_scene4_final2.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
@@ -76,6 +77,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ FINAL concluído: cenas 1, 2, 3 e 5 preservadas da V5 aprovada tecnicamente; somente a cena 4 foi regenerada com ritmo mínimo de 150 WPM e QA de dicção. Artifact: **ze-postavel-FINAL-voice-alive-${context.runId}**\n\n${runUrl}`
+                ? `✅ FINAL concluído: cenas 1, 2, 3 e 5 preservadas bit a bit da V5; somente a cena 4 foi regenerada com ritmo mínimo de 150 WPM e QA de dicção. Artifact: **ze-postavel-FINAL-voice-alive-${context.runId}**\n\n${runUrl}`
                 : `❌ FINAL reprovado/falhou. A cena 4 não passou simultaneamente em dicção + ritmo. Logs:\n\n${runUrl}`
             });
