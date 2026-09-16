@@ -13,7 +13,7 @@ jobs:
   render-final:
     if: startsWith(github.event.issue.title, '[Gerar postável final]')
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
 
     steps:
       - name: Checkout main
@@ -30,31 +30,32 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg unzip fonts-dejavu-core curl >/dev/null
           python -m pip install --upgrade pip >/dev/null
-          python -m pip install 'gradio_client>=1.8,<2' pillow >/dev/null
+          python -m pip install 'gradio_client>=1.8,<2' pillow 'faster-whisper>=1.1,<2' >/dev/null
           git fetch origin ze-curioso-v24:refs/remotes/origin/ze-curioso-v24
           python -m py_compile \
             cloud/ze_postavel_woodfrog_final.py \
             cloud/ze_postavel_woodfrog_card_sync.py \
-            cloud/run_ze_card_sync.py
+            cloud/ze_postavel_woodfrog_continuous_bubble.py
 
-      - name: Render card with exact audio-block speech bubble sync
+      - name: Render continuous voice with captions only in Ze speech bubble
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/run_ze_card_sync.py
+        run: python cloud/ze_postavel_woodfrog_continuous_bubble.py
 
-      - name: Upload exact-sync artifact
+      - name: Upload continuous-bubble artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-card-exact-${{ github.run_id }}
+          name: ze-postavel-continuous-bubble-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
             post_final/copy_postagem.txt
             post_final/roteiro.txt
             post_final/qa.json
-            post_final/durations.json
             post_final/bubble_timing.json
-            post_final/captions_card_sync.ass
+            post_final/asr_transcript.txt
+            post_final/alignment_words.json
+            post_final/audio/narration_continuous.wav
             post_final/scenes/scene_*.jpg
             post_final/bubble_frames/*.jpg
           if-no-files-found: error
@@ -72,6 +73,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ Vídeo com card e balões sincronizados pela duração real dos microáudios. Artifact: **ze-postavel-card-exact-${context.runId}**\n\n${runUrl}`
-                : `❌ Falha no render exact-sync. Logs:\n\n${runUrl}`
+                ? `✅ Render V3 concluído: áudio contínuo sem microcortes + legendas exclusivamente dentro do balão do Zé. Artifact: **ze-postavel-continuous-bubble-${context.runId}**\n\n${runUrl}`
+                : `❌ Falha no render V3 continuous-bubble. Logs:\n\n${runUrl}`
             });
