@@ -126,6 +126,9 @@ def generate_body_voice_locked():
         "target_pitch_medians_hz": TARGET_MEDIANS,
         "target_wpm": TARGET_WPM,
     }
+    # QA herdado da V6 lê v6.SELECTED_METRICS; portanto ele precisa apontar
+    # para a MESMA tomada que realmente foi reprocessada acima.
+    v6.SELECTED_METRICS = selected
     data["selected"] = selected
     data["voice_lock_enabled"] = True
     meta_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
