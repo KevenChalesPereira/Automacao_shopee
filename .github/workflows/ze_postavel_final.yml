@@ -37,17 +37,18 @@ jobs:
             cloud/ze_postavel_woodfrog_card_sync.py \
             cloud/ze_postavel_woodfrog_continuous_bubble.py \
             cloud/ze_postavel_woodfrog_scene_voice_bubble_v4.py \
-            cloud/ze_postavel_woodfrog_voice_v5_final.py
+            cloud/ze_postavel_woodfrog_voice_v5_final.py \
+            cloud/ze_postavel_woodfrog_voice_v5_scene4_final.py
 
-      - name: Render V5 final lively voice with locked visuals
+      - name: Render final locked V5 with revived scene 4 only
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_voice_v5_final.py
+        run: python cloud/ze_postavel_woodfrog_voice_v5_scene4_final.py
 
-      - name: Upload V5 final artifact
+      - name: Upload final artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-v5-final-lively-${{ github.run_id }}
+          name: ze-postavel-FINAL-voice-alive-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -75,6 +76,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ V5 final concluída: visual e balões da V4 preservados; voz selecionada entre tomadas corretas pela interpretação mais viva e conversacional. Artifact: **ze-postavel-v5-final-lively-${context.runId}**\n\n${runUrl}`
-                : `❌ V5 final reprovada ou falhou. O pipeline não entregou um take que atendesse dicção + interpretação. Logs:\n\n${runUrl}`
+                ? `✅ FINAL concluído: cenas 1, 2, 3 e 5 preservadas da V5 aprovada tecnicamente; somente a cena 4 foi regenerada com ritmo mínimo de 150 WPM e QA de dicção. Artifact: **ze-postavel-FINAL-voice-alive-${context.runId}**\n\n${runUrl}`
+                : `❌ FINAL reprovado/falhou. A cena 4 não passou simultaneamente em dicção + ritmo. Logs:\n\n${runUrl}`
             });
