@@ -1,0 +1,24 @@
+{
+  "engine": "VoxCPM2",
+  "profile": "ze_curioso_default",
+  "locked": true,
+  "reference_artifact_id": 10419929060,
+  "reference_file_glob": "*02_criador_conversando*",
+  "approved_variant": "take 02 original",
+  "reject_variants": [
+    "VoxCPM2 refined pass 1",
+    "VoxCPM2 refined pass 2",
+    "VoxCPM2 subtle final refinement"
+  ],
+  "delivery": {
+    "language": "pt-BR",
+    "style": "criador de conteúdo conversando com uma pessoa",
+    "pace_wpm_target": "160-170",
+    "avoid": [
+      "voz de locutor de rádio",
+      "entonação teatral",
+      "gritos"
+    ]
+  },
+  "notes": "Padrão fixo do Zé Curioso. Trocar somente após aprovação explícita de uma nova voz."
+}
