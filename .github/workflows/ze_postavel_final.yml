@@ -41,12 +41,13 @@ jobs:
             cloud/ze_postavel_woodfrog_voice_v5_scene4_final.py \
             cloud/ze_postavel_woodfrog_voice_v5_scene4_final2.py \
             cloud/ze_postavel_woodfrog_voice_final_locked.py \
-            cloud/ze_postavel_woodfrog_voice_v6_single_take.py
+            cloud/ze_postavel_woodfrog_voice_v6_single_take.py \
+            cloud/ze_postavel_woodfrog_voice_v6_retry.py
 
       - name: Render final V6 single-take stable voice
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_voice_v6_single_take.py
+        run: python cloud/ze_postavel_woodfrog_voice_v6_retry.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
@@ -81,6 +82,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ V6 concluída: narração inteira gerada em UMA tomada contínua, sem reinício de entonação entre cenas. Seleção por dicção + ritmo + estabilidade de pitch/energia. Artifact: **ze-postavel-FINAL-single-take-${context.runId}**\n\n${runUrl}`
-                : `❌ V6 reprovada/falhou. Nenhuma tomada completa passou simultaneamente nos gates de dicção, ritmo e estabilidade. Logs:\n\n${runUrl}`
+                ? `✅ V6 concluída: narração inteira gerada em UMA tomada contínua, texto final aprovado e sem reinício de entonação entre cenas. Seleção por dicção + ritmo + estabilidade de pitch/energia. Artifact: **ze-postavel-FINAL-single-take-${context.runId}**\n\n${runUrl}`
+                : `❌ V6 reprovada/falhou. A tomada contínua não passou simultaneamente nos gates de texto, ritmo e estabilidade. Logs:\n\n${runUrl}`
             });
