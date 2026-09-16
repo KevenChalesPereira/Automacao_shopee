@@ -1,7 +1,7 @@
 # Zé Curioso — Prompt Mestre Travado
 
-VERSÃO: 1.0
-STATUS: LOCKED
+VERSÃO: 1.1
+STATUS: LOCKED — TEMPLATE FINAL SIMPLE POP
 
 ## Identidade do canal
 O Zé Curioso publica vídeos verticais curtos sobre **curiosidades reais da natureza que parecem mentira**.
@@ -58,34 +58,46 @@ Estrutura:
 Não usar frases vazias como “você não vai acreditar”, “isso é chocante”, “fica até o final”. O próprio fato precisa ser o gancho.
 
 ## Voz travada
-- mesma identidade vocal VoxCPM2 take 02 aprovada;
-- uma tomada contínua;
+- referência vocal: VoxCPM2 take 02 aprovada (`ze_voxrefine_02_criador_conversando.mp3`);
+- uma tomada contínua no corpo;
 - conversa calma, explicativa e cotidiana;
 - energia baixa-média;
 - finais de frase naturais, geralmente neutros ou descendentes;
 - sem expressão constante de alerta/perigo;
 - sem voz de locutor, teatro, suspense ou propaganda;
 - poucas ênfases durante o corpo do vídeo;
-- bordão final recebe UMA elevação clara de presença, sem gritar.
+- selecionar a tomada também por estabilidade/timbre/pitch, não apenas por ASR;
+- rejeitar mudança abrupta de personagem, pitch drift alto, tremor/rasp/fry ou entonação artificial.
+
+Fingerprint de referência da tomada aprovada do run `35155786249`:
+- WPM aproximado: 174.42;
+- f0 jitter aproximado: 0.01739;
+- pitch-section drift aproximado: 0.04559;
+- stability score aproximado: 0.78423;
+- medianas de pitch por seção aproximadas: 145.90 / 139.13 / 134.45 Hz.
 
 Assinatura final exata:
-“Zé Curioso: parece mentira, mas é real.”
+“Eu sou o Zé Curioso. E aqui... parece mentira, mas é real.”
 
 Direção da assinatura:
-- “Zé Curioso” = identidade clara/confiante;
-- “parece mentira” = leve subida de interesse;
-- “mas é real” = conclusão firme e descendente;
-- aproximadamente 10–18% mais presença que a narração imediatamente anterior, sem mudar de personagem.
+- mesma identidade vocal do corpo;
+- “Eu sou o Zé Curioso” claro e natural;
+- pequena pausa em “E aqui...”;
+- “parece mentira, mas é real” com um pouco mais de presença, sem gritar e sem mudar de personagem;
+- acrescentar pequena cauda de silêncio depois da última palavra para impedir corte.
 
-## Balão/legenda travado
+## Balão/legenda travado — APROVADO
 O balão do Zé É a legenda. Não criar legenda externa.
-- exibir uma palavra por vez;
-- sincronizar cada palavra com timestamp real do áudio (ASR/alinhamento);
-- balão pequeno e próximo ao Zé;
-- cada palavra entra com POP curto: 82% → 108% → 100%;
-- animação total do pop: aproximadamente 90–120 ms;
-- durante pausas reais, esconder o texto/balão se a pausa for longa o suficiente;
-- nunca acumular frase inteira dentro do balão.
+- dividir cada bloco em grupos FIXOS de até 3 palavras;
+- o grupo permanece no balão enquanto suas palavras são faladas;
+- somente a palavra que está sendo falada recebe destaque visual;
+- a palavra ativa NÃO aumenta de tamanho e NÃO faz POP individual;
+- o balão inteiro faz UM único POP curto quando cada novo grupo entra e depois permanece estático;
+- perfil aprovado do POP do balão: aproximadamente 88% → 106% → 100%;
+- sincronizar o destaque da palavra ativa com timestamp real do áudio via Faster-Whisper/alinhamento;
+- balão compacto e próximo ao Zé;
+- sem legenda inferior separada;
+- nunca animar novamente o balão a cada troca da palavra destacada.
 
 ## Visual travado
 - vídeo vertical 1080x1920;
@@ -93,16 +105,20 @@ O balão do Zé É a legenda. Não criar legenda externa.
 - Zé preservado;
 - imagem deve provar ou ilustrar o fato narrado naquele momento;
 - evitar banner grande cobrindo a imagem;
-- sem legenda inferior separada.
+- sem legenda inferior separada;
+- manter render contínuo/single-pass; não voltar a centenas de mini-MP4 concatenados.
 
 ## QA obrigatório antes de publicar
 Reprovar automaticamente se:
 - palavra crítica do roteiro sumir ou mudar de sentido;
 - ASR indicar fala embolada;
 - houver mudança abrupta de timbre/pitch;
+- a voz fugir claramente do fingerprint aprovado;
 - bordão estiver sem as palavras exatas;
 - legenda aparecer fora do balão;
-- palavra do balão estiver visivelmente fora do timestamp;
+- destaque da palavra estiver visivelmente fora do timestamp;
+- palavra fizer POP individual;
+- balão pulsar a cada palavra em vez de apenas na entrada do grupo;
 - fonte/imagem não sustentar o fato central.
 
 ## Saída da etapa editorial
