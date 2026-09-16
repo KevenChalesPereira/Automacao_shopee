@@ -32,20 +32,20 @@ jobs:
           python -m pip install --upgrade pip >/dev/null
           python -m pip install 'gradio_client>=1.8,<2' pillow >/dev/null
           git fetch origin ze-curioso-v24:refs/remotes/origin/ze-curioso-v24
-          python -m py_compile cloud/ze_postavel_woodfrog_final.py cloud/ze_fix_safe_captions.py
+          python -m py_compile \
+            cloud/ze_postavel_woodfrog_final.py \
+            cloud/ze_postavel_woodfrog_card_sync.py \
+            cloud/run_ze_card_sync.py
 
-      - name: Render final post
+      - name: Render final post with framed card and synced speech bubbles
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_final.py
-
-      - name: Fix captions for vertical safe area
-        run: python cloud/ze_fix_safe_captions.py
+        run: python cloud/run_ze_card_sync.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-final-safe-${{ github.run_id }}
+          name: ze-postavel-card-sync-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -53,8 +53,10 @@ jobs:
             post_final/roteiro.txt
             post_final/qa.json
             post_final/durations.json
-            post_final/captions_safe.ass
+            post_final/bubble_timing.json
+            post_final/captions_card_sync.ass
             post_final/scenes/scene_*.jpg
+            post_final/bubble_frames/*.jpg
           if-no-files-found: error
           retention-days: 7
 
@@ -70,6 +72,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ Vídeo postável finalizado com legendas na área segura. Artifact: **ze-postavel-final-safe-${context.runId}**\n\n${runUrl}`
-                : `❌ Falha no render final. Logs:\n\n${runUrl}`
+                ? `✅ Vídeo com card central, balões sincronizados e bordão finalizado. Artifact: **ze-postavel-card-sync-${context.runId}**\n\n${runUrl}`
+                : `❌ Falha no render card/sync. Logs:\n\n${runUrl}`
             });
