@@ -30,23 +30,24 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg unzip fonts-dejavu-core curl >/dev/null
           python -m pip install --upgrade pip >/dev/null
-          python -m pip install 'gradio_client>=1.8,<2' pillow 'faster-whisper>=1.1,<2' >/dev/null
+          python -m pip install 'gradio_client>=1.8,<2' pillow 'faster-whisper>=1.1,<2' numpy >/dev/null
           git fetch origin ze-curioso-v24:refs/remotes/origin/ze-curioso-v24
           python -m py_compile \
             cloud/ze_postavel_woodfrog_final.py \
             cloud/ze_postavel_woodfrog_card_sync.py \
             cloud/ze_postavel_woodfrog_continuous_bubble.py \
-            cloud/ze_postavel_woodfrog_scene_voice_bubble_v4.py
+            cloud/ze_postavel_woodfrog_scene_voice_bubble_v4.py \
+            cloud/ze_postavel_woodfrog_voice_v5_final.py
 
-      - name: Render V4 scene voice with strict QA and bubble-only captions
+      - name: Render V5 final lively voice with locked visuals
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_scene_voice_bubble_v4.py
+        run: python cloud/ze_postavel_woodfrog_voice_v5_final.py
 
-      - name: Upload V4 artifact
+      - name: Upload V5 final artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-v4-clean-voice-bubble-${{ github.run_id }}
+          name: ze-postavel-v5-final-lively-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -74,6 +75,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ Render V4 concluído: 5 tomadas completas (uma por cena), QA rígido de palavras críticas e legendas exclusivamente no balão do Zé. Artifact: **ze-postavel-v4-clean-voice-bubble-${context.runId}**\n\n${runUrl}`
-                : `❌ V4 reprovado ou falhou. Isso significa que o pipeline não aceitou um áudio ruim. Logs:\n\n${runUrl}`
+                ? `✅ V5 final concluída: visual e balões da V4 preservados; voz selecionada entre tomadas corretas pela interpretação mais viva e conversacional. Artifact: **ze-postavel-v5-final-lively-${context.runId}**\n\n${runUrl}`
+                : `❌ V5 final reprovada ou falhou. O pipeline não entregou um take que atendesse dicção + interpretação. Logs:\n\n${runUrl}`
             });
