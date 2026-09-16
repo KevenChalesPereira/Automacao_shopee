@@ -44,17 +44,18 @@ jobs:
             cloud/ze_postavel_woodfrog_voice_v6_single_take.py \
             cloud/ze_postavel_woodfrog_voice_v6_retry.py \
             cloud/ze_postavel_woodfrog_voice_v6_2_final.py \
-            cloud/ze_postavel_woodfrog_voice_v6_3_calm.py
+            cloud/ze_postavel_woodfrog_voice_v6_3_calm.py \
+            cloud/ze_postavel_woodfrog_v6_4_locked.py
 
-      - name: Render final V6.3 calm explanatory voice
+      - name: Render locked V6.4 word-pop template
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_voice_v6_3_calm.py
+        run: python cloud/ze_postavel_woodfrog_v6_4_locked.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-FINAL-v6-3-${{ github.run_id }}
+          name: ze-postavel-LOCKED-v6-4-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -62,6 +63,7 @@ jobs:
             post_final/roteiro.txt
             post_final/qa.json
             post_final/bubble_timing.json
+            post_final/word_bubble_timing.json
             post_final/asr_transcript.txt
             post_final/alignment_words.json
             post_final/voice_consistency.json
@@ -84,6 +86,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ V6.3 concluída: voz contínua com direção calma/explicativa, sem expressão constante de alerta, mantendo o take 02 e o texto final travado. Artifact: **ze-postavel-FINAL-v6-3-${context.runId}**\n\n${runUrl}`
-                : `❌ V6.3 reprovada/falhou. Nenhuma tomada passou nos gates de texto/estabilidade, ou ocorreu erro de render. Logs:\n\n${runUrl}`
+                ? `✅ V6.4 LOCKED concluída: voz calma contínua, bordão com presença extra e balão pequeno palavra-por-palavra em POP. Artifact: **ze-postavel-LOCKED-v6-4-${context.runId}**\n\n${runUrl}`
+                : `❌ V6.4 reprovada/falhou. Logs:\n\n${runUrl}`
             });
