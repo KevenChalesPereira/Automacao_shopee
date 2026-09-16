@@ -37,15 +37,15 @@ jobs:
             cloud/ze_postavel_woodfrog_card_sync.py \
             cloud/run_ze_card_sync.py
 
-      - name: Render final post with framed card and synced speech bubbles
+      - name: Render card with exact audio-block speech bubble sync
         env:
           GH_TOKEN: ${{ github.token }}
         run: python cloud/run_ze_card_sync.py
 
-      - name: Upload final artifact
+      - name: Upload exact-sync artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ze-postavel-card-sync-${{ github.run_id }}
+          name: ze-postavel-card-exact-${{ github.run_id }}
           path: |
             post_final/ze_curioso_sapo_congela_final.mp4
             post_final/capa_sapo_congela_final.jpg
@@ -72,6 +72,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ Vídeo com card central, balões sincronizados e bordão finalizado. Artifact: **ze-postavel-card-sync-${context.runId}**\n\n${runUrl}`
-                : `❌ Falha no render card/sync. Logs:\n\n${runUrl}`
+                ? `✅ Vídeo com card e balões sincronizados pela duração real dos microáudios. Artifact: **ze-postavel-card-exact-${context.runId}**\n\n${runUrl}`
+                : `❌ Falha no render exact-sync. Logs:\n\n${runUrl}`
             });
