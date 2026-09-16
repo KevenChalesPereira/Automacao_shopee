@@ -9,7 +9,7 @@ BASE = POST / "video_base.mp4"
 FINAL = POST / "ze_curioso_sapo_congela_final.mp4"
 ASS = POST / "captions_safe.ass"
 
-# Quebras manuais: nenhuma linha longa o bastante para escapar das margens
+# Quebras manuais: nenhuma linha longa o bastante para escapar das margens.
 CAPTIONS = [
     [
         "Esse sapo CONGELA\\Nno inverno…",
@@ -25,7 +25,7 @@ CAPTIONS = [
         "Ela protege as células\\Nenquanto o gelo se forma\\Nao redor delas.",
     ],
     [
-        "Na primavera, descongela\\nDE DENTRO PRA FORA.",
+        "Na primavera, descongela\\NDE DENTRO PRA FORA.",
         "Primeiro coração.\\NDepois cérebro.\\NPor fim, pernas.",
     ],
     [
@@ -68,7 +68,6 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
     events = []
     t = 0.0
     for dur, parts in zip(durations, CAPTIONS):
-        # Distribui o tempo proporcionalmente ao número de palavras faladas.
         weights = [max(1, len(p.replace("\\N", " ").split())) for p in parts]
         total = sum(weights)
         cur = t
