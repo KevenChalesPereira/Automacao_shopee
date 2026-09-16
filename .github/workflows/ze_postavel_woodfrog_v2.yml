@@ -1,0 +1,461 @@
+name: Ze Curioso Postavel Wood Frog V2
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  render:
+    if: startsWith(github.event.issue.title, '[Gerar postável v2]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Zé assets
+        uses: actions/checkout@v5
+        with:
+          ref: ze-curioso-v24
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg unzip fonts-dejavu-core curl >/dev/null
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install 'gradio_client>=1.8,<2' pillow >/dev/null
+          mkdir -p post/assets post/audio post/scenes post/video
+
+      - name: Rebuild approved Zé mascot
+        run: |
+          set -euo pipefail
+          cat \
+            assets/ze_curioso/ze_final_b64/part01.txt \
+            assets/ze_curioso/ze_final_b64/part02.txt \
+            assets/ze_curioso/ze_final_b64/part03c.txt \
+            assets/ze_curioso/ze_final_b64/part03.txt \
+            assets/ze_curioso/ze_final_b64/part04.txt \
+            assets/ze_curioso/ze_final_b64/part06.txt \
+            assets/ze_curioso/ze_final_b64/part07.txt \
+            > /tmp/ze_main.b64
+          base64 -d /tmp/ze_main.b64 > post/assets/ze_main.png
+          python - <<'PY'
+          from PIL import Image
+          p='post/assets/ze_main.png'
+          im=Image.open(p).convert('RGBA')
+          if im.width < 250 or im.height < 300:
+              raise SystemExit(f'Mascote com dimensões inesperadas: {im.size}')
+          print('Mascote Zé OK:', im.size)
+          PY
+
+      - name: Download locked original VoxCPM2 take 02
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10419929060/zip" \
+            -o /tmp/approved_voice.zip
+          rm -rf /tmp/approved_voice
+          mkdir -p /tmp/approved_voice
+          unzip -o /tmp/approved_voice.zip -d /tmp/approved_voice >/dev/null
+          REF="$(find /tmp/approved_voice -type f -name '*02_criador_conversando*' | head -n 1)"
+          test -n "$REF"
+          test -s "$REF"
+          cp "$REF" post/voice_ref.mp3
+          echo "Voz travada: $(basename "$REF")"
+          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 post/voice_ref.mp3
+
+      - name: Download two verified licensed wood frog photos
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            'https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/Lithobates_sylvaticus_%28wood_frog%29.jpg/1280px-Lithobates_sylvaticus_%28wood_frog%29.jpg' \
+            -o post/assets/frog_01.jpg
+          curl --fail --location --retry 3 \
+            'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Lithobates_sylvaticus_-_Wood_Frog_01.jpg/1280px-Lithobates_sylvaticus_-_Wood_Frog_01.jpg' \
+            -o post/assets/frog_02.jpg
+          file post/assets/frog_*.jpg
+          test -s post/assets/frog_01.jpg
+          test -s post/assets/frog_02.jpg
+
+      - name: Generate final narration from approved voice
+        run: |
+          python - <<'PY'
+          import shutil, time
+          from pathlib import Path
+          from gradio_client import Client, handle_file
+
+          scenes = [
+            'Esse sapo congela no inverno, para de respirar e o coração simplesmente para de bater.',
+            'E o mais absurdo: meses depois, ele descongela e sai andando como se nada tivesse acontecido. É o sapo-da-floresta.',
+            'Quando a temperatura cai, o fígado libera muita glicose. Ela protege as células enquanto o gelo se forma ao redor delas.',
+            'Na primavera, ele descongela de dentro pra fora: primeiro o coração volta, depois o cérebro e, por fim, as pernas.',
+            'Parece ficção, mas é sobrevivência real. A natureza consegue ser mais estranha que qualquer filme.'
+          ]
+
+          control = (
+            'Brazilian Portuguese male short-form content creator. Keep the exact reference timbre and personality. '
+            'Speak like telling a surprising fact directly to one friend: warm, spontaneous and naturally animated. '
+            'Clear emphasis on surprising words, human micro-pauses, subtle pace changes, around 160 to 170 words per minute. '
+            'No radio announcer voice, no theatrical delivery, no shouting.'
+          )
+
+          client = Client('openbmb/VoxCPM-Demo', verbose=False)
+          ref = handle_file('post/voice_ref.mp3')
+
+          def extract_path(res):
+              if isinstance(res, str):
+                  return res
+              if isinstance(res, dict):
+                  for k in ('path', 'name', 'url'):
+                      v = res.get(k)
+                      if isinstance(v, str) and v:
+                          return v
+              if isinstance(res, (list, tuple)):
+                  for v in res:
+                      try:
+                          return extract_path(v)
+                      except Exception:
+                          pass
+              raise RuntimeError(f'Unexpected VoxCPM output: {res!r}')
+
+          for i, text in enumerate(scenes, 1):
+              last = None
+              for attempt in range(1, 18):
+                  try:
+                      res = client.predict(
+                          text, control, ref, False, '', 2.0, True, False,
+                          api_name='/generate'
+                      )
+                      src = Path(extract_path(res))
+                      if not src.exists() or src.stat().st_size < 4000:
+                          raise RuntimeError(f'Invalid generated audio: {src}')
+                      suffix = src.suffix.lower() or '.wav'
+                      dst = Path(f'post/audio/scene_{i:02d}{suffix}')
+                      shutil.copy2(src, dst)
+                      print(f'scene {i}: {dst} ({dst.stat().st_size} bytes)')
+                      break
+                  except Exception as exc:
+                      last = exc
+                      msg = str(exc).lower()
+                      if 'queue is full' in msg or '429' in msg or 'busy' in msg:
+                          time.sleep(min(15 + attempt * 3, 45))
+                          continue
+                      raise
+              else:
+                  raise RuntimeError(last)
+
+          Path('post/roteiro.txt').write_text('\n\n'.join(scenes), encoding='utf-8')
+          PY
+
+      - name: Build five branded vertical scenes with Zé
+        run: |
+          python - <<'PY'
+          from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter, ImageOps
+          from pathlib import Path
+          import math, random
+
+          W, H = 1080, 1920
+          frog1 = Path('post/assets/frog_01.jpg')
+          frog2 = Path('post/assets/frog_02.jpg')
+          ze_path = Path('post/assets/ze_main.png')
+          font_bold = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+          font_reg = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
+
+          def fit_bg(path, center=(0.5, 0.5), zoom=1.0):
+              im = Image.open(path).convert('RGB')
+              bg = ImageOps.fit(im, (W, H), method=Image.Resampling.LANCZOS, centering=center)
+              if zoom > 1.0:
+                  nw, nh = int(W * zoom), int(H * zoom)
+                  bg = bg.resize((nw, nh), Image.Resampling.LANCZOS)
+                  left = (nw - W) // 2
+                  top = (nh - H) // 2
+                  bg = bg.crop((left, top, left + W, top + H))
+              return bg.convert('RGBA')
+
+          def shade(im, top=55, bottom=175):
+              grad = Image.new('L', (1, H))
+              px = grad.load()
+              for y in range(H):
+                  px[0, y] = int(top + (bottom-top) * y / (H-1))
+              grad = grad.resize((W, H))
+              black = Image.new('RGBA', (W, H), (0, 0, 0, 255))
+              black.putalpha(grad)
+              return Image.alpha_composite(im, black)
+
+          def title(draw, lines, y=130, size=78, fills=None):
+              fills = fills or ['white'] * len(lines)
+              f = ImageFont.truetype(font_bold, size)
+              yy = y
+              for line, fill in zip(lines, fills):
+                  box = draw.textbbox((0, 0), line, font=f, stroke_width=6)
+                  x = (W - (box[2]-box[0])) // 2
+                  draw.text((x, yy), line, font=f, fill=fill, stroke_width=6, stroke_fill='black')
+                  yy += int(size * 1.08)
+
+          def paste_ze(im, bubble_lines, side='left'):
+              ze = Image.open(ze_path).convert('RGBA')
+              target_w = 315
+              target_h = int(ze.height * target_w / ze.width)
+              ze = ze.resize((target_w, target_h), Image.Resampling.LANCZOS)
+              y = 1110
+              if side == 'left':
+                  zx = 35
+                  bx1, by1, bx2, by2 = 355, 1180, 1025, 1450
+                  tail = [(355, 1325), (310, 1375), (370, 1360)]
+              else:
+                  zx = W - target_w - 35
+                  bx1, by1, bx2, by2 = 55, 1180, 725, 1450
+                  tail = [(725, 1325), (770, 1375), (710, 1360)]
+              im.alpha_composite(ze, (zx, y))
+              d = ImageDraw.Draw(im)
+              d.rounded_rectangle((bx1, by1, bx2, by2), radius=46, fill=(255,255,255,235), outline=(20,20,20,230), width=5)
+              d.polygon(tail, fill=(255,255,255,235))
+              f = ImageFont.truetype(font_bold, 48)
+              total_h = len(bubble_lines) * 60
+              yy = by1 + ((by2-by1)-total_h)//2
+              for line in bubble_lines:
+                  box = d.textbbox((0,0), line, font=f)
+                  x = bx1 + ((bx2-bx1)-(box[2]-box[0]))//2
+                  d.text((x, yy), line, font=f, fill=(15,15,15,255))
+                  yy += 60
+
+          def brand(draw):
+              draw.rounded_rectangle((45, 55, 315, 120), radius=26, fill=(0,0,0,165))
+              draw.text((72, 70), 'ZÉ CURIOSO', font=ImageFont.truetype(font_bold, 32), fill='white')
+
+          # 1 — choque/frio
+          im = fit_bg(frog1, center=(0.42,0.48), zoom=1.04)
+          im = ImageEnhance.Color(im.convert('RGB')).enhance(0.55).convert('RGBA')
+          im = Image.alpha_composite(im, Image.new('RGBA',(W,H),(35,125,220,60)))
+          im = shade(im, 35, 165)
+          d = ImageDraw.Draw(im); brand(d)
+          random.seed(7)
+          for _ in range(130):
+              x=random.randrange(W); y=random.randrange(H); r=random.choice((2,3,4,6))
+              d.ellipse((x-r,y-r,x+r,y+r), fill=(238,250,255,random.randrange(80,180)))
+          title(d, ['ELE CONGELA.', 'O CORAÇÃO PARA.'], 185, 75, ['#E9FAFF','#FFD84A'])
+          paste_ze(im, ['Sem respirar.', 'Sem batimento.'], 'left')
+          im.convert('RGB').save('post/scenes/scene_01.jpg', quality=95)
+
+          # 2 — volta à vida / ECG
+          im = fit_bg(frog2, center=(0.60,0.46), zoom=1.10)
+          im = ImageEnhance.Color(im.convert('RGB')).enhance(0.62).convert('RGBA')
+          im = shade(im, 45, 180)
+          d = ImageDraw.Draw(im); brand(d)
+          title(d, ['MESES DEPOIS…', 'ELE VOLTA.'], 175, 82, ['white','#79FF9F'])
+          y=760; pts=[]
+          for x in range(70,1010,10):
+              if 330 < x < 445:
+                  dy=-130*math.sin((x-330)/115*math.pi)
+              elif 445 <= x < 560:
+                  dy=92*math.sin((x-445)/115*math.pi)
+              else:
+                  dy=0
+              pts.append((x,y+dy))
+          d.line(pts, fill=(255,72,72,255), width=9)
+          paste_ze(im, ['E depois...', 'ele levanta.'], 'right')
+          im.convert('RGB').save('post/scenes/scene_02.jpg', quality=95)
+
+          # 3 — explicação da glicose
+          im = fit_bg(frog1, center=(0.70,0.42), zoom=1.14)
+          im = ImageEnhance.Color(im.convert('RGB')).enhance(0.78).convert('RGBA')
+          warm = Image.new('RGBA',(W,H),(255,155,35,35))
+          im = shade(Image.alpha_composite(im,warm), 60, 190)
+          d = ImageDraw.Draw(im); brand(d)
+          title(d, ['O SEGREDO?', 'GLICOSE.'], 175, 88, ['white','#FFD84A'])
+          random.seed(11)
+          for i in range(15):
+              x=random.randint(100,980); y=random.randint(610,1050); r=random.randint(24,43)
+              d.ellipse((x-r,y-r,x+r,y+r), fill=(255,211,70,190), outline=(255,245,190,230), width=4)
+              if i < 6:
+                  d.text((x-14,y-19),'G',font=ImageFont.truetype(font_bold,28),fill='black')
+          paste_ze(im, ['Ela protege', 'as células.'], 'left')
+          im.convert('RGB').save('post/scenes/scene_03.jpg', quality=95)
+
+          # 4 — ordem do descongelamento
+          im = fit_bg(frog2, center=(0.40,0.50), zoom=1.05)
+          im = ImageEnhance.Color(im.convert('RGB')).enhance(0.92).convert('RGBA')
+          im = shade(im, 40, 180)
+          d = ImageDraw.Draw(im); brand(d)
+          title(d, ['DESCONGELA', 'DE DENTRO PRA FORA'], 165, 67, ['#BCEEFF','white'])
+          labels=[('1','CORAÇÃO'),('2','CÉREBRO'),('3','PERNAS')]
+          yy=600
+          for num,label in labels:
+              d.ellipse((135,yy,225,yy+90),fill=(255,216,74,235))
+              d.text((165,yy+13),num,font=ImageFont.truetype(font_bold,43),fill='black')
+              d.rounded_rectangle((250,yy+5,900,yy+85),radius=30,fill=(0,0,0,160))
+              d.text((290,yy+16),label,font=ImageFont.truetype(font_bold,43),fill='white')
+              yy += 120
+          paste_ze(im, ['Primeiro coração,', 'depois cérebro.'], 'right')
+          im.convert('RGB').save('post/scenes/scene_04.jpg', quality=95)
+
+          # 5 — payoff quente
+          im = fit_bg(frog1, center=(0.52,0.45), zoom=1.08)
+          im = ImageEnhance.Color(im.convert('RGB')).enhance(1.15).convert('RGBA')
+          glow = Image.new('RGBA',(W,H),(255,185,75,32))
+          im = shade(Image.alpha_composite(im,glow), 30, 170)
+          d = ImageDraw.Draw(im); brand(d)
+          title(d, ['PARECE FICÇÃO.', 'MAS É REAL.'], 190, 79, ['white','#79FF9F'])
+          paste_ze(im, ['A natureza é', 'absurda mesmo.'], 'left')
+          d.rounded_rectangle((230,1540,850,1638),radius=38,fill=(0,0,0,165))
+          d.text((305,1563),'SOBREVIVÊNCIA REAL',font=ImageFont.truetype(font_bold,38),fill='#FFD84A')
+          im.convert('RGB').save('post/scenes/scene_05.jpg', quality=95)
+          PY
+
+      - name: Render synchronized scenes and burned captions
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess, json
+
+          audios = sorted(Path('post/audio').glob('scene_*'))
+          if len(audios) != 5:
+              raise SystemExit(f'Expected 5 audios, got {len(audios)}')
+          durations=[]
+          for p in audios:
+              d=float(subprocess.check_output([
+                  'ffprobe','-v','error','-show_entries','format=duration',
+                  '-of','default=nw=1:nk=1',str(p)
+              ], text=True).strip())
+              durations.append(d)
+          Path('post/durations.json').write_text(json.dumps(durations, indent=2), encoding='utf-8')
+          print('durations=', durations, 'total=', sum(durations))
+
+          caps=[
+            ['Esse sapo CONGELA no inverno…','para de respirar — e o CORAÇÃO PARA.'],
+            ['Meses depois, ele descongela…','e sai andando como se nada tivesse acontecido.','É o SAPO-DA-FLORESTA.'],
+            ['Quando esfria, o fígado libera GLICOSE.','Ela protege as células enquanto o gelo se forma ao redor.'],
+            ['Na primavera, descongela DE DENTRO PRA FORA.','Primeiro coração. Depois cérebro. Por fim, pernas.'],
+            ['Parece ficção, mas é SOBREVIVÊNCIA REAL.','A natureza pode ser mais estranha que qualquer filme.']
+          ]
+
+          def ts(sec):
+              h=int(sec//3600); sec-=h*3600
+              m=int(sec//60); sec-=m*60
+              return f'{h}:{m:02d}:{sec:05.2f}'
+
+          ass='''[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\nStyle: Cap,DejaVu Sans,52,&H00FFFFFF,&H00FFFFFF,&H00101010,&H98000000,-1,0,0,0,100,100,0,0,3,3,0,2,70,70,145,1\n\n[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n'''
+          t=0.0
+          for dur,parts in zip(durations,caps):
+              weights=[max(1,len(x.split())) for x in parts]
+              total=sum(weights); cur=t
+              for part,w in zip(parts,weights):
+                  seg=dur*w/total
+                  end=cur+seg
+                  safe=part.replace('{','').replace('}','')
+                  ass += f'Dialogue: 0,{ts(cur)},{ts(end)},Cap,,0,0,0,,{safe}\\N\n'
+                  cur=end
+              t += dur
+          Path('post/captions.ass').write_text(ass, encoding='utf-8')
+          PY
+
+          rm -f post/video/scene_*.mp4 post/video/video_list.txt
+          for i in 1 2 3 4 5; do
+            D=$(python - <<PY
+import json
+x=json.load(open('post/durations.json'))
+print(x[$((i-1))])
+PY
+)
+            IMG=$(printf 'post/scenes/scene_%02d.jpg' "$i")
+            AUD=$(find post/audio -maxdepth 1 -type f -name "scene_$(printf '%02d' $i).*" | head -1)
+            OUT=$(printf 'post/video/scene_%02d.mp4' "$i")
+            if [ "$i" -eq 1 ] || [ "$i" -eq 3 ] || [ "$i" -eq 5 ]; then
+              Z="min(zoom+0.00055,1.065)"
+            else
+              Z="if(lte(zoom,1.0),1.065,max(1.0,zoom-0.00050))"
+            fi
+            ffmpeg -y -loop 1 -i "$IMG" -i "$AUD" -t "$D" \
+              -vf "zoompan=z='$Z':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps=30,format=yuv420p" \
+              -c:v libx264 -preset medium -crf 19 -c:a aac -b:a 192k -ar 48000 -ac 2 -shortest "$OUT" >/dev/null 2>&1
+            echo "file '$(realpath "$OUT")'" >> post/video/video_list.txt
+          done
+
+          ffmpeg -y -f concat -safe 0 -i post/video/video_list.txt -c copy post/video_base.mp4 >/dev/null 2>&1
+          ffmpeg -y -i post/video_base.mp4 \
+            -vf "ass=post/captions.ass" \
+            -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p \
+            -c:a copy -movflags +faststart post/ze_curioso_sapo_congela_v2.mp4 >/dev/null 2>&1
+          cp post/scenes/scene_01.jpg post/capa_sapo_congela_v2.jpg
+
+      - name: QA final and publishing copy
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+
+          video='post/ze_curioso_sapo_congela_v2.mp4'
+          raw=subprocess.check_output([
+              'ffprobe','-v','error','-show_format','-show_streams','-of','json',video
+          ], text=True)
+          info=json.loads(raw)
+          duration=float(info['format']['duration'])
+          vids=[s for s in info['streams'] if s.get('codec_type')=='video']
+          auds=[s for s in info['streams'] if s.get('codec_type')=='audio']
+          if not vids or not auds:
+              raise SystemExit('QA: missing video or audio stream')
+          v=vids[0]; a=auds[0]
+          checks={
+              'duration_seconds': duration,
+              'width': v.get('width'),
+              'height': v.get('height'),
+              'video_codec': v.get('codec_name'),
+              'audio_codec': a.get('codec_name'),
+              'duration_target_ok': 24.0 <= duration <= 42.0,
+              'vertical_1080x1920_ok': v.get('width')==1080 and v.get('height')==1920,
+              'h264_ok': v.get('codec_name')=='h264',
+              'aac_ok': a.get('codec_name')=='aac'
+          }
+          checks['passed']=all([
+              checks['duration_target_ok'], checks['vertical_1080x1920_ok'],
+              checks['h264_ok'], checks['aac_ok']
+          ])
+          Path('post/qa.json').write_text(json.dumps(checks, ensure_ascii=False, indent=2), encoding='utf-8')
+          print(json.dumps(checks, ensure_ascii=False, indent=2))
+          if not checks['passed']:
+              raise SystemExit('QA final failed')
+
+          Path('post/copy_postagem.txt').write_text('''TÍTULO/CAPA:\nO sapo que CONGELA e volta meses depois 🐸❄️\n\nLEGENDA:\nEsse sapo passa o inverno sem respirar e sem o coração bater — e depois descongela e volta à atividade. O segredo envolve uma carga enorme de glicose protegendo as células. 🐸❄️\n\n#curiosidades #natureza #animais #ciencia #zecurioso #shorts #tiktokbr\n\nFontes factuais: U.S. National Park Service — Biological Miracle (Gates of the Arctic) e Amphibians (Denali).\nImagens: MichaelZahniser (Public Domain) e Jasper Shide (CC0 1.0), via Wikimedia Commons.\nVoz: VoxCPM2 — take 02 original aprovada do Zé Curioso.\n''', encoding='utf-8')
+          PY
+
+      - name: Upload post-ready artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-postavel-v2-sapo-${{ github.run_id }}
+          path: |
+            post/ze_curioso_sapo_congela_v2.mp4
+            post/capa_sapo_congela_v2.jpg
+            post/copy_postagem.txt
+            post/roteiro.txt
+            post/qa.json
+            post/durations.json
+            post/scenes/scene_*.jpg
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Comment issue
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ok = '${{ job.status }}' === 'success';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: ok
+                ? `✅ Vídeo postável V2 finalizado com a voz antiga travada. Artifact: **ze-postavel-v2-sapo-${context.runId}**\n\n${runUrl}`
+                : `❌ Falha no render postável V2. Logs:\n\n${runUrl}`
+            });
