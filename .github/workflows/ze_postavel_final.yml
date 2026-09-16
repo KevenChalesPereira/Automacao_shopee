@@ -45,12 +45,13 @@ jobs:
             cloud/ze_postavel_woodfrog_voice_v6_retry.py \
             cloud/ze_postavel_woodfrog_voice_v6_2_final.py \
             cloud/ze_postavel_woodfrog_voice_v6_3_calm.py \
-            cloud/ze_postavel_woodfrog_v6_4_locked.py
+            cloud/ze_postavel_woodfrog_v6_4_locked.py \
+            cloud/ze_postavel_woodfrog_v6_4_brandfix.py
 
       - name: Render locked V6.4 word-pop template
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python cloud/ze_postavel_woodfrog_v6_4_locked.py
+        run: python cloud/ze_postavel_woodfrog_v6_4_brandfix.py
 
       - name: Upload final artifact
         uses: actions/upload-artifact@v4
@@ -86,6 +87,6 @@ jobs:
               repo: context.repo.repo,
               issue_number: context.issue.number,
               body: ok
-                ? `✅ V6.4 LOCKED concluída: voz calma contínua, bordão com presença extra e balão pequeno palavra-por-palavra em POP. Artifact: **ze-postavel-LOCKED-v6-4-${context.runId}**\n\n${runUrl}`
+                ? `✅ V6.4 LOCKED concluída: voz calma contínua, bordão validado como Zé Curioso e balão pequeno palavra-por-palavra em POP. Artifact: **ze-postavel-LOCKED-v6-4-${context.runId}**\n\n${runUrl}`
                 : `❌ V6.4 reprovada/falhou. Logs:\n\n${runUrl}`
             });
