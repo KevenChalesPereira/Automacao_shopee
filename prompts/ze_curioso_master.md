@@ -1,6 +1,6 @@
 # Zé Curioso — Prompt Mestre Travado
 
-VERSÃO: 1.1
+VERSÃO: 1.2
 STATUS: LOCKED — TEMPLATE FINAL SIMPLE POP
 
 ## Identidade do canal
@@ -85,6 +85,10 @@ Direção da assinatura:
 - pequena pausa em “E aqui...”;
 - “parece mentira, mas é real” com um pouco mais de presença, sem gritar e sem mudar de personagem;
 - acrescentar pequena cauda de silêncio depois da última palavra para impedir corte.
+
+### Correção de voz pendente — NÃO BLOQUEIA PRODUÇÃO
+A versão aprovada pode apresentar leve rouquidão/aspereza em algumas tomadas. O pipeline já pode rodar assim.
+Depois, acrescentar um critério específico de `roughness/hoarseness` ao seletor de voz para rejeitar excesso de rouquidão sem alterar a identidade aprovada, o pitch geral, o ritmo, o POP ou o layout. Não aplicar filtro agressivo de áudio que deixe a voz metálica; preferir seleção de uma tomada naturalmente mais limpa.
 
 ## Balão/legenda travado — APROVADO
 O balão do Zé É a legenda. Não criar legenda externa.
