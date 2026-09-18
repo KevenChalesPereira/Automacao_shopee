@@ -97,6 +97,9 @@ def moneyprinter_choose_episode(request: dict) -> dict:
     # Zé-specific locked ending stays outside the generic MoneyPrinter script stage.
     blocks[-1].append(dyn.SIGNOFF)
 
+    spoken_script = " ".join(" ".join(row) for row in blocks)
+    metadata = mp.metadata_from_script(str(script.get("topic") or theme), spoken_script)
+
     search_terms = []
     for value in list(script.get("search_terms") or []) + list(plan.get("pexels_queries") or []):
         value = str(value).strip()
@@ -123,6 +126,7 @@ def moneyprinter_choose_episode(request: dict) -> dict:
             "script_stage": "MoneyPrinter generate_script/get_search_terms architecture via Groq on GitHub Actions",
             "tts_voice": "br_005",
             "voice_pass": "MoneyPrinter br_005 -> VoxCPM2",
+            "metadata": metadata,
         },
         "caption": str(script.get("caption") or ""),
     }
@@ -267,13 +271,38 @@ def moneyprinter_rewrite_outputs(episode: dict) -> None:
     post = dyn.POST
 
     copy_path = post / "copy_postagem.txt"
+    metadata = (episode.get("moneyprinter") or {}).get("metadata") or {}
     if copy_path.exists():
-        text = copy_path.read_text(encoding="utf-8")
-        text = text.replace(
-            "Voz: VoxCPM2 — identidade aprovada do Zé Curioso.",
-            "Voz: MoneyPrinter br_005 → VoxCPM2 — híbrido aprovado do Zé Curioso."
+        title = str(metadata.get("title") or episode["topic"]).strip()
+        description = str(metadata.get("description") or episode.get("caption") or episode["topic"]).strip()
+        keywords = [str(x).strip() for x in metadata.get("keywords", []) if str(x).strip()]
+        source_lines = "\n".join(f"- {u}" for u in episode.get("source_urls", []))
+        credits = []
+        for img in episode.get("images", []):
+            bits = [img.get("title", "")]
+            if img.get("artist"):
+                bits.append(img["artist"])
+            if img.get("license"):
+                bits.append(img["license"])
+            credits.append(" — ".join(x for x in bits if x))
+        tags = ["#zecurioso", "#curiosidades", "#natureza", "#ciencia", "#shorts"]
+        for keyword in keywords:
+            tag = "#" + "".join(ch for ch in keyword.lower().replace(" ", "") if ch.isalnum() or ch == "_")
+            if len(tag) > 1 and tag not in tags:
+                tags.append(tag)
+        copy = (
+            f"TÍTULO/CAPA:\n{title}\n\n"
+            f"LEGENDA:\n{description}\n\n"
+            + " ".join(tags[:10])
+            + f"\n\nPalavras-chave MoneyPrinter: {', '.join(keywords)}\n\n"
+            + f"Fontes factuais:\n{source_lines}\n\n"
+            + "Imagens: Wikimedia Commons/Wikipedia"
+            + (" + Pexels (MoneyPrinter)." if (episode.get("moneyprinter") or {}).get("pexels_results") else ".")
+            + "\nCréditos:\n"
+            + "\n".join(f"- {x}" for x in credits)
+            + "\n\nVoz: MoneyPrinter br_005 → VoxCPM2 — híbrido aprovado do Zé Curioso.\n"
         )
-        copy_path.write_text(text, encoding="utf-8")
+        copy_path.write_text(copy, encoding="utf-8")
 
     qa_path = post / "qa.json"
     qa = json.loads(qa_path.read_text(encoding="utf-8"))
