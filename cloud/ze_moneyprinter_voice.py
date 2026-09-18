@@ -185,7 +185,7 @@ def install(vf) -> None:
             "micro-pauses, gentle curiosity, smoother sentence flow and subtle emphasis on surprising facts. "
             "Calm confidence, no radio announcer, no advertisement, no theatrical delivery and no shouting."
         )
-        raw, analysis, selected, rows, mode = _hybrid_generate(text, "body", critical, control, 4)
+        raw, analysis, selected, rows, mode = _hybrid_generate(text, "body", critical, control, 3)
         final = AUDIO / "narration_continuous.wav"
         shifted, tempo = _finalize(raw, analysis, final, 170.0)
         selected = {
@@ -194,6 +194,7 @@ def install(vf) -> None:
             "voice_architecture": mode,
             "moneyprinter_voice": "br_005",
             "playback_tempo": round(tempo, 6),
+            "wpm": round(float(analysis["wpm"]) * tempo, 2),
             "accepted_file": final.name,
         }
         v6.SELECTED_METRICS = selected
@@ -214,7 +215,7 @@ def install(vf) -> None:
             "then a small natural pause. Give 'parece mentira' a light curiosity lift and land 'mas é real' firmly. "
             "Do not shout and do not sound like an announcer or advertisement."
         )
-        raw, analysis, selected, rows, mode = _hybrid_generate(text, "signoff", critical, control, 4)
+        raw, analysis, selected, rows, mode = _hybrid_generate(text, "signoff", critical, control, 3)
         final = AUDIO / "signoff_final.wav"
         shifted, tempo = _finalize(raw, analysis, final, 165.0)
         selected = {
