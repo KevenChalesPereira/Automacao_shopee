@@ -246,6 +246,9 @@ Formato obrigatório: JSON com:
 }}
 Regras:
 - pt-BR natural, curioso e direto.
+- escolha UMA curiosidade central realmente surpreendente sustentada pela fonte e construa o vídeo inteiro em torno dela.
+- não faça ficha enciclopédica, lista de classificação ou panorama genérico do animal, a menos que isso seja indispensável para entender a curiosidade.
+- cena 1: gancho forte e específico; cena 2: prova/fato; cena 3: como funciona; cena 4: consequência ou detalhe mais surpreendente; cena 5: fechamento factual.
 - 5 cenas.
 - corpo total entre 78 e 105 palavras antes do bordão.
 - a quinta cena deve terminar SEM bordão; o sistema acrescenta o bordão fixo depois.
