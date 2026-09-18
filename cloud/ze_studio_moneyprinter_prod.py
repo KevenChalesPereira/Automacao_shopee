@@ -20,6 +20,35 @@ _original_rewrite = dyn.rewrite_outputs
 _original_download_photos = dyn.download_episode_photos
 
 
+def _moneyprinter_wikipedia_topic(query: str) -> dict:
+    params = {
+        "action": "query",
+        "generator": "search",
+        "gsrsearch": query,
+        "gsrlimit": 8,
+        "prop": "extracts|pageimages",
+        "exintro": 1,
+        "explaintext": 1,
+        "piprop": "original",
+        "format": "json",
+        "formatversion": 2,
+    }
+    data = dyn._http_json("https://pt.wikipedia.org/w/api.php", params)
+    pages = [p for p in data.get("query", {}).get("pages", []) if p.get("extract")]
+    if not pages:
+        raise RuntimeError(f"Não encontrei artigo específico para: {query}")
+    # MediaWiki search exposes an index/ranking. The previous helper chose the
+    # longest extract, which could replace a specific animal with a broad taxon.
+    page = min(pages, key=lambda p: int(p.get("index", 999999)))
+    title = page["title"]
+    return {
+        "title": title,
+        "extract": page.get("extract", ""),
+        "page_url": "https://pt.wikipedia.org/wiki/" + dyn.urllib.parse.quote(title.replace(" ", "_")),
+        "original_image": (page.get("original") or {}).get("source"),
+    }
+
+
 def _validate_script(data: dict) -> None:
     blocks = data.get("blocks")
     titles = data.get("titles")
@@ -48,7 +77,7 @@ def moneyprinter_choose_episode(request: dict) -> dict:
     if not theme:
         raise RuntimeError("MoneyPrinter topic planner returned no theme")
 
-    wiki = dyn.wikipedia_topic(wiki_query)
+    wiki = _moneyprinter_wikipedia_topic(wiki_query)
     script = mp.script_from_grounded_source(theme, wiki["title"], wiki["extract"])
     _validate_script(script)
 
