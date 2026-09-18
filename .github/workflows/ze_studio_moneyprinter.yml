@@ -1,5 +1,9 @@
 name: Ze Curioso Studio - MoneyPrinter Primary
 
+concurrency:
+  group: ze-moneyprinter-studio
+  cancel-in-progress: false
+
 on:
   issues:
     types: [opened]
@@ -12,7 +16,7 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write
   issues: write
 
 jobs:
@@ -96,6 +100,45 @@ jobs:
             post_final/scenes/scene_*.jpg
           if-no-files-found: error
           retention-days: 7
+
+      - name: Persist approved topic history
+        if: success()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          episode=json.loads(Path("post_final/episode.json").read_text(encoding="utf-8"))
+          path=Path("data/ze_moneyprinter_history.json")
+          data=json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"version":1,"topics":[]}
+          topic=str(episode.get("topic") or "").strip()
+          eid=str(episode.get("id") or "").strip()
+          source=(episode.get("source_urls") or [""])[0]
+          keys={(str(x.get("id") or "").lower(), str(x.get("topic") or "").lower()) for x in data.get("topics",[])}
+          if (eid.lower(), topic.lower()) not in keys:
+              data.setdefault("topics",[]).append({
+                  "id":eid,
+                  "topic":topic,
+                  "source":source,
+                  "run_id":"${{ github.run_id }}"
+              })
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+              print("HISTORY_ADDED",topic)
+          else:
+              print("HISTORY_ALREADY_PRESENT",topic)
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- data/ze_moneyprinter_history.json; then
+            echo "No history change"
+          else
+            git add data/ze_moneyprinter_history.json
+            git commit -m "chore: record generated Zé topic [skip ci]"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
 
       - name: Comment issue
         if: ${{ github.event_name == 'issues' && always() }}
