@@ -143,6 +143,16 @@ def install(vf) -> None:
                 print("MONEYVOX_QA", json.dumps(row, ensure_ascii=False), flush=True)
                 if a["ratio"] >= 0.91 and not a["missing"]:
                     valid.append((score, raw, a, row))
+                    # Do not spend extra VoxCPM queue time once a take is already
+                    # text-clean and prosodically stable.
+                    if (
+                        a["ratio"] >= 0.97
+                        and float(stab.get("stability_score", 0.0)) >= 0.70
+                        and float(stab.get("pitch_section_drift", 9.0)) <= 0.15
+                        and float(stab.get("f0_jitter", 9.0)) <= 0.04
+                    ):
+                        print("MONEYVOX_EARLY_ACCEPT", attempt, flush=True)
+                        break
             except Exception as exc:
                 print("MONEYVOX_ATTEMPT_WARN", attempt, repr(exc), flush=True)
                 time.sleep(3)
