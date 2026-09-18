@@ -163,20 +163,45 @@ def _groq(messages: list[dict], temperature: float = 0.5) -> str:
     key = os.getenv("GROQ_API_KEY", "").strip()
     if not key:
         raise RuntimeError("GROQ_API_KEY is not configured")
-    last = None
+    errors = []
     for model in GROQ_MODELS:
-        try:
-            r = requests.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json={"model": model, "messages": messages, "temperature": temperature, "response_format": {"type": "json_object"}},
-                timeout=120,
-            )
-            r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"]
-        except Exception as exc:
-            last = exc
-    raise RuntimeError(f"Groq stage failed: {last}")
+        for json_mode in (True, False):
+            payload = {"model": model, "messages": messages, "temperature": temperature}
+            if json_mode:
+                payload["response_format"] = {"type": "json_object"}
+            try:
+                r = requests.post(
+                    GROQ_URL,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json=payload,
+                    timeout=120,
+                )
+                if not r.ok:
+                    errors.append(f"{model} json_mode={json_mode}: HTTP {r.status_code}: {r.text[:500]}")
+                    continue
+                content = r.json()["choices"][0]["message"]["content"]
+                if not content or not str(content).strip():
+                    errors.append(f"{model} json_mode={json_mode}: empty content")
+                    continue
+                return str(content)
+            except Exception as exc:
+                errors.append(f"{model} json_mode={json_mode}: {type(exc).__name__}: {exc}")
+    raise RuntimeError("Groq stage failed: " + " | ".join(errors[-6:]))
+
+
+def _parse_json_text(text: str) -> dict:
+    raw = str(text).strip()
+    if raw.startswith("~~~") or raw.startswith("```"):
+        raw = re.sub(r"^(?:~~~|```)(?:json)?\\s*", "", raw, flags=re.I)
+        raw = re.sub(r"\\s*(?:~~~|```)\\s*$", "", raw)
+    try:
+        return json.loads(raw)
+    except Exception:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(raw[start:end + 1])
+        raise
 
 
 def propose_fresh_topic(extra_blacklist: list[str] | None = None) -> dict:
@@ -187,7 +212,7 @@ def propose_fresh_topic(extra_blacklist: list[str] | None = None) -> dict:
         "Evite estes temas: " + ", ".join(blocked) + ". "
         "Não invente fatos. Retorne JSON: {theme, hook, wikipedia_query, pexels_queries:[3 strings]}."
     )
-    return json.loads(_groq([
+    return _parse_json_text(_groq([
         {"role": "system", "content": "Você é a etapa de topic/search planning do MoneyPrinter adaptada ao Zé Curioso."},
         {"role": "user", "content": prompt},
     ], temperature=0.9))
@@ -220,7 +245,7 @@ Fonte: {source_title}
 TEXTO-FONTE:
 {source_text}
 """
-    return json.loads(_groq([
+    return _parse_json_text(_groq([
         {"role": "system", "content": "Você é generate_script + get_search_terms do MoneyPrinter, adaptado a um roteiro factual do Zé Curioso."},
         {"role": "user", "content": prompt},
     ], temperature=0.35))
