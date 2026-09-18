@@ -190,7 +190,9 @@ def moneyprinter_download_episode_photos() -> None:
         suffix = ".png" if ".png" in url.lower().split("?")[0] else ".jpg"
         raw = dyn.ASSETS / f"episode_raw_{idx:02d}{suffix}"
         last = None
-        proxy_url = "https://wsrv.nl/?url=" + urllib.parse.quote(url, safe="") + "&w=1400&output=jpg"
+        clean_url = url.split("?", 1)[0]
+        proxy_source = clean_url.replace("https://", "").replace("http://", "")
+        proxy_url = "https://wsrv.nl/?url=" + urllib.parse.quote(proxy_source, safe="/") + "&w=1400&output=jpg"
         sources = [url, proxy_url]
         downloaded = False
         for source_no, source_url in enumerate(sources, 1):
