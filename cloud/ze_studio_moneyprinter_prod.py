@@ -72,7 +72,8 @@ def moneyprinter_choose_episode(request: dict) -> dict:
         "topic": str(script.get("topic") or theme),
         "common_name": wiki["title"],
         "scientific_name": "",
-        "commons_query": str(script.get("commons_query") or wiki["title"]),
+        "commons_query": wiki["title"],
+        "moneyprinter_requested_commons_query": str(script.get("commons_query") or wiki["title"]),
         "titles": [[str(x)[:28] for x in row[:2]] for row in script["titles"]],
         "blocks": blocks,
         "source_urls": [wiki["page_url"]],
@@ -93,7 +94,32 @@ def moneyprinter_choose_episode(request: dict) -> dict:
 
 
 def moneyprinter_enrich(episode: dict) -> dict:
-    episode = _original_enrich(episode)
+    # Wikimedia is the no-key media baseline. Retry progressively broader,
+    # source-grounded terms instead of failing on one overly specific query.
+    attempts = []
+    candidates = [
+        str(episode.get("commons_query") or "").strip(),
+        str(episode.get("common_name") or "").strip(),
+        str(episode.get("topic") or "").strip(),
+    ]
+    last = None
+    for query in candidates:
+        if not query or query.lower() in [x.lower() for x in attempts]:
+            continue
+        attempts.append(query)
+        trial = json.loads(json.dumps(episode, ensure_ascii=False))
+        trial["commons_query"] = query
+        try:
+            episode = _original_enrich(trial)
+            episode.setdefault("moneyprinter", {})["commons_query_used"] = query
+            episode["moneyprinter"]["commons_query_attempts"] = attempts
+            break
+        except Exception as exc:
+            last = exc
+            print("MONEYPRINTER_COMMONS_RETRY", query, repr(exc), flush=True)
+    else:
+        raise RuntimeError(f"MoneyPrinter media search failed after {attempts}: {last}")
+
     terms = list((episode.get("moneyprinter") or {}).get("search_terms") or [])
     stock = mp.collect_stock_videos(terms, max_videos=5) if terms else []
     episode.setdefault("moneyprinter", {})["pexels_stock_videos"] = stock
