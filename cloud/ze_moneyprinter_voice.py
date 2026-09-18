@@ -60,7 +60,7 @@ def install(vf) -> None:
             "metrics": metrics,
         }
 
-    def _finalize(raw: Path, analysis: dict, final: Path, target_wpm: float = 170.0):
+    def _finalize(raw: Path, analysis: dict, final: Path, target_wpm: float = 170.0, pitch_factor: float = 0.97):
         words = analysis["words"]
         first = float(words[0]["start"])
         last = float(words[-1]["end"])
@@ -76,6 +76,18 @@ def install(vf) -> None:
         filters = []
         if tempo < 0.999:
             filters.append(f"atempo={tempo:.6f}")
+
+        # Slightly lower the voice without changing the final duration, so the
+        # Faster-Whisper word timing and speech-bubble sync remain valid.
+        # 0.97 is intentionally subtle (~half a semitone), avoiding a fake
+        # "deep announcer" sound.
+        pitch_factor = max(0.94, min(1.0, float(pitch_factor)))
+        if pitch_factor < 0.999:
+            shifted_rate = int(round(48000 * pitch_factor))
+            filters.append(f"asetrate={shifted_rate}")
+            filters.append("aresample=48000")
+            filters.append(f"atempo={1.0 / pitch_factor:.6f}")
+
         filters.append("loudnorm=I=-16:TP=-2:LRA=8")
         v4.run([
             "ffmpeg", "-y", "-ss", f"{trim_start:.4f}", "-t", f"{trim_duration:.4f}",
@@ -193,17 +205,20 @@ def install(vf) -> None:
             "Brazilian Portuguese male short-form creator. Preserve the MoneyPrinter reference voice identity, "
             "clarity and clean diction very closely. Make the delivery human and conversational, with natural "
             "micro-pauses, gentle curiosity, smoother sentence flow and subtle emphasis on surprising facts. "
+            "Use a slightly lower natural pitch center and a warmer chest tone than the reference, while keeping it realistic. "
             "Calm confidence, no radio announcer, no advertisement, no theatrical delivery and no shouting."
         )
         raw, analysis, selected, rows, mode = _hybrid_generate(text, "body", critical, control, 3)
         final = AUDIO / "narration_continuous.wav"
-        shifted, tempo = _finalize(raw, analysis, final, 170.0)
+        shifted, tempo = _finalize(raw, analysis, final, 170.0, pitch_factor=0.97)
         selected = {
             **selected,
             "selected": True,
             "voice_architecture": mode,
             "moneyprinter_voice": "br_005",
             "playback_tempo": round(tempo, 6),
+            "pitch_factor": 0.97,
+            "pitch_direction": "slightly lower and warmer",
             "wpm": round(float(analysis["wpm"]) * tempo, 2),
             "accepted_file": final.name,
         }
@@ -223,11 +238,12 @@ def install(vf) -> None:
             "Brazilian Portuguese male short-form creator. Preserve the MoneyPrinter reference voice. "
             "Say the channel signature naturally and clearly. 'Eu sou o Zé Curioso' is confident identification, "
             "then a small natural pause. Give 'parece mentira' a light curiosity lift and land 'mas é real' firmly. "
+            "Use the same slightly lower natural pitch center and warmer chest tone as the body. "
             "Do not shout and do not sound like an announcer or advertisement."
         )
         raw, analysis, selected, rows, mode = _hybrid_generate(text, "signoff", critical, control, 3)
         final = AUDIO / "signoff_final.wav"
-        shifted, tempo = _finalize(raw, analysis, final, 165.0)
+        shifted, tempo = _finalize(raw, analysis, final, 165.0, pitch_factor=0.97)
         selected = {
             **selected,
             "selected": True,
