@@ -217,6 +217,19 @@ def propose_fresh_topic(extra_blacklist: list[str] | None = None) -> dict:
         {"role": "user", "content": prompt},
     ], temperature=0.9))
 
+def plan_explicit_theme(theme: str) -> dict:
+    prompt = (
+        "Normalize este tema para o pipeline brasileiro do Zé Curioso: " + theme + ". "
+        "Identifique o assunto específico e retorne um termo de busca em PORTUGUÊS que encontre o artigo exato "
+        "na Wikipédia em português; evite categorias genéricas. Também gere 3 termos Pexels, preferindo inglês "
+        "ou nome científico para achar mídia. Não invente fatos. "
+        "Retorne JSON: {theme, hook, wikipedia_query, pexels_queries:[3 strings]}."
+    )
+    return _parse_json_text(_groq([
+        {"role": "system", "content": "Você é a etapa de topic/search planning do MoneyPrinter adaptada ao Zé Curioso."},
+        {"role": "user", "content": prompt},
+    ], temperature=0.2))
+
 
 def script_from_grounded_source(topic: str, source_title: str, source_text: str) -> dict:
     source_text = re.sub(r"\s+", " ", source_text).strip()[:9000]
