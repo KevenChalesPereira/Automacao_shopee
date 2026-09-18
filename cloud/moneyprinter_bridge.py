@@ -207,10 +207,14 @@ def _parse_json_text(text: str) -> dict:
 def propose_fresh_topic(extra_blacklist: list[str] | None = None) -> dict:
     blocked = DEFAULT_BLACKLIST + list(extra_blacklist or [])
     prompt = (
-        "Escolha UMA curiosidade real e visual sobre animal/natureza para vídeo vertical brasileiro. "
-        "Precisa ter um assunto específico que possua artigo na Wikipédia e imagens pesquisáveis. "
+        "Escolha UMA curiosidade real, visual e imediatamente compreensível sobre animal/natureza para um Short brasileiro. "
+        "A curiosidade precisa causar reação do tipo 'como assim?' em uma frase, sem depender de taxonomia, contexto científico longo "
+        "ou explicação enciclopédica. Prefira capacidades estranhas, comportamentos improváveis, mecanismos físicos visuais ou fatos "
+        "que possam ser revelados aos poucos. O assunto precisa ter artigo específico na Wikipédia e imagens pesquisáveis. "
+        "Evite temas cujo fato principal seja apenas tamanho, classificação, habitat ou nome científico. "
         "Evite estes temas: " + ", ".join(blocked) + ". "
-        "Não invente fatos. Retorne JSON: {theme, hook, wikipedia_query, pexels_queries:[3 strings]}."
+        "Não invente fatos. O hook deve ter no máximo 12 palavras e NÃO entregar toda a explicação. "
+        "Retorne JSON: {theme, hook, wikipedia_query, pexels_queries:[3 strings]}."
     )
     return _parse_json_text(_groq([
         {"role": "system", "content": "Você é a etapa de topic/search planning do MoneyPrinter adaptada ao Zé Curioso."},
@@ -234,7 +238,8 @@ def plan_explicit_theme(theme: str) -> dict:
 def script_from_grounded_source(topic: str, source_title: str, source_text: str) -> dict:
     source_text = re.sub(r"\s+", " ", source_text).strip()[:9000]
     prompt = f"""
-Crie o roteiro do Zé Curioso usando SOMENTE fatos sustentados pelo texto-fonte abaixo.
+Crie um roteiro CURTO do Zé Curioso usando SOMENTE fatos sustentados pelo texto-fonte abaixo.
+
 Formato obrigatório: JSON com:
 {{
   "topic": "...",
@@ -244,17 +249,44 @@ Formato obrigatório: JSON com:
   "search_terms": ["...", "...", "...", "...", "..."],
   "caption": "..."
 }}
-Regras:
-- pt-BR natural, curioso e direto.
-- escolha UMA curiosidade central realmente surpreendente sustentada pela fonte e construa o vídeo inteiro em torno dela.
-- não faça ficha enciclopédica, lista de classificação ou panorama genérico do animal, a menos que isso seja indispensável para entender a curiosidade.
-- cena 1: gancho forte e específico; cena 2: prova/fato; cena 3: como funciona; cena 4: consequência ou detalhe mais surpreendente; cena 5: fechamento factual.
-- 5 cenas.
-- corpo total entre 78 e 105 palavras antes do bordão.
-- a quinta cena deve terminar SEM bordão; o sistema acrescenta o bordão fixo depois.
-- frases factuais, sem exagerar o que a fonte diz.
-- títulos curtos e fortes.
-- termos de busca em inglês ou nomes científicos quando isso melhorar a mídia.
+
+OBJETIVO:
+A pessoa precisa pensar "pera, como assim?" nos primeiros segundos e querer ouvir a próxima frase.
+O roteiro deve soar como alguém contando uma curiosidade absurda para um amigo — NÃO como documentário, aula ou Wikipédia.
+
+REGRAS DE RETENÇÃO:
+- escolha UMA única curiosidade central e construa tudo em volta dela.
+- primeira frase: 5 a 11 palavras, forte, concreta e fácil de entender.
+- NÃO comece com "Você sabia?", "Existe um animal", nome científico, classificação, habitat ou contexto.
+- NÃO explique tudo no começo. Abra uma dúvida e responda aos poucos.
+- use frases curtas; idealmente 4 a 10 palavras por frase.
+- use palavras comuns. Termo técnico só se for indispensável, e explique imediatamente.
+- uma ideia por frase.
+- retire detalhes que não aumentem surpresa, entendimento ou curiosidade.
+- não use listas de características.
+- não repita a mesma ideia com palavras diferentes.
+- não invente suspense falso e não exagere além da fonte.
+
+ESTRUTURA:
+- Cena 1 — GANCHO: mostre o fato mais estranho sem explicar tudo.
+- Cena 2 — PROVA: diga o que realmente acontece, de forma concreta.
+- Cena 3 — COMO: explique o mecanismo em linguagem simples.
+- Cena 4 — VIRADA: entregue o detalhe mais surpreendente ou a consequência mais curiosa.
+- Cena 5 — FECHO: uma frase curta que faz o fato "cair a ficha".
+- O sistema acrescenta o bordão fixo depois; NÃO escreva o bordão.
+
+TAMANHO:
+- exatamente 5 cenas.
+- corpo total entre 55 e 75 palavras antes do bordão.
+- no máximo 2 frases por cena.
+- nenhuma frase com mais de 14 palavras.
+
+TÍTULOS:
+- 2 linhas por cena.
+- cada linha com no máximo 4 palavras.
+- linguagem simples e forte; sem termos técnicos desnecessários.
+
+Antes de devolver o JSON, corte qualquer frase que pareça enciclopédica, formal ou dispensável.
 
 Tema pedido: {topic}
 Fonte: {source_title}
@@ -262,10 +294,16 @@ TEXTO-FONTE:
 {source_text}
 """
     return _parse_json_text(_groq([
-        {"role": "system", "content": "Você é generate_script + get_search_terms do MoneyPrinter, adaptado a um roteiro factual do Zé Curioso."},
+        {
+            "role": "system",
+            "content": (
+                "Você é o roteirista de retenção do MoneyPrinter adaptado ao Zé Curioso. "
+                "Seu trabalho é transformar um fato verdadeiro em uma história oral simples, curta e viciante. "
+                "Fatos vêm da fonte; o estilo vem de conversa informal brasileira."
+            ),
+        },
         {"role": "user", "content": prompt},
-    ], temperature=0.35))
-
+    ], temperature=0.45))
 
 def metadata_from_script(video_subject: str, script: str) -> dict:
     """Hosted adaptation of MoneyPrinter Backend/gpt.py generate_metadata()."""
