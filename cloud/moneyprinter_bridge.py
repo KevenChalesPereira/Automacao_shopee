@@ -264,6 +264,37 @@ TEXTO-FONTE:
     ], temperature=0.35))
 
 
+def metadata_from_script(video_subject: str, script: str) -> dict:
+    """Hosted adaptation of MoneyPrinter Backend/gpt.py generate_metadata()."""
+    prompt = f"""
+Gere metadados para um vídeo vertical curto brasileiro sobre: {video_subject}
+Baseie-se neste roteiro:
+{script}
+
+Retorne JSON estrito:
+{{
+  "title": "título curto, forte e natural em pt-BR",
+  "description": "descrição curta e envolvente em pt-BR",
+  "keywords": ["6 termos curtos"]
+}}
+Evite clickbait falso e não acrescente fatos que não estejam no roteiro.
+"""
+    try:
+        data = _parse_json_text(_groq([
+            {"role": "system", "content": "Você é a etapa generate_metadata do MoneyPrinter adaptada a Shorts/TikTok do Zé Curioso."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.35))
+        title = str(data.get("title") or "").strip()
+        description = str(data.get("description") or "").strip()
+        keywords = [str(x).strip() for x in list(data.get("keywords") or []) if str(x).strip()][:6]
+        if not title or not description:
+            raise ValueError("metadata incompleta")
+        return {"title": title, "description": description, "keywords": keywords}
+    except Exception as exc:
+        print("MONEYPRINTER_METADATA_WARN", repr(exc), flush=True)
+        return {"title": video_subject, "description": "", "keywords": []}
+
+
 def pexels_search(query: str, api_key: str | None = None, per_page: int = 15, min_duration: int = 5) -> list[dict]:
     """Adapted from MoneyPrinter Backend/search.py, retaining best-resolution selection."""
     key = (api_key or os.getenv("PEXELS_API_KEY", "")).strip()
