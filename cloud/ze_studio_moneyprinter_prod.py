@@ -17,6 +17,7 @@ import ze_studio_dynamic_prod as prod
 
 dyn = prod.dyn
 vf = dyn.vf
+dyn.VOICE_TODO = "roughness guard implemented for MoneyPrinter/VoxCPM signoff"
 
 _original_enrich = dyn.enrich_episode
 _original_rewrite = dyn.rewrite_outputs
