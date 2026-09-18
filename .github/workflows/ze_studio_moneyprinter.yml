@@ -105,6 +105,11 @@ jobs:
         if: success()
         run: |
           set -euo pipefail
+          # The render can take several minutes; main may move meanwhile.
+          # Refresh only tracked repo state before editing history. post_final/
+          # is untracked, so the rendered episode remains available.
+          git fetch origin main
+          git reset --hard origin/main
           python - <<'PY'
           import json
           from pathlib import Path
@@ -136,7 +141,6 @@ jobs:
           else
             git add data/ze_moneyprinter_history.json
             git commit -m "chore: record generated Zé topic [skip ci]"
-            git pull --rebase origin main
             git push origin HEAD:main
           fi
 
