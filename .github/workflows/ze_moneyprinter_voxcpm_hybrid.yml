@@ -1,0 +1,178 @@
+name: Ze Curioso - MoneyPrinter VoxCPM Hybrid Test
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  hybrid-test:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && startsWith(github.event.issue.title, '[Teste Hibrido MoneyVox]')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tools
+        run: |
+          python -m pip install --upgrade pip >/dev/null
+          python -m pip install 'gradio_client>=1.8,<2' requests >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg unzip >/dev/null
+          mkdir -p hybrid_test moneyprinter_ref
+
+      - name: Download MoneyPrinter TTS reference
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10543396004/zip" \
+            -o /tmp/moneyprinter.zip
+          unzip -o /tmp/moneyprinter.zip -d moneyprinter_ref
+          REF="$(find moneyprinter_ref -type f -name 'br_005.mp3' | head -n 1)"
+          test -n "$REF" && test -s "$REF"
+          cp "$REF" hybrid_test/A_moneyprinter_br005.mp3
+          ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$REF"
+
+      - name: Generate VoxCPM pure and hybrid
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python - <<'PY'
+          import os, re, shutil, time, json
+          from pathlib import Path
+          from gradio_client import Client, handle_file
+
+          body=os.environ.get('ISSUE_BODY','')
+          m=re.search(r'### Texto\s*\n+(.+?)(?:\n### |\Z)',body,re.S)
+          text=(m.group(1).strip() if m else body.strip()) or (
+              'Esse animal parece impossível, mas existe de verdade. '
+              'Ele consegue sobreviver em condições que derrubariam quase qualquer outro animal. '
+              'Eu sou o Zé Curioso. E aqui... parece mentira, mas é real.'
+          )
+          text=text[:320]
+
+          out=Path('hybrid_test')
+          client=Client('openbmb/VoxCPM-Demo', verbose=False)
+
+          control_pure=(
+              'Brazilian Portuguese male short-form content creator. Warm, conversational, natural, clear, '
+              'relaxed but engaged. Human micro-pauses, subtle curiosity, no radio announcer voice, '
+              'no theatrical delivery, no shouting.'
+          )
+
+          control_hybrid=(
+              'Brazilian Portuguese male short-form creator. Preserve the reference voice identity, clarity '
+              'and clean diction very closely. Make the delivery more human and conversational: natural micro-pauses, '
+              'gentle curiosity, smoother sentence flow, subtle emphasis on surprising facts, calm confident ending. '
+              'Do not sound like a radio announcer, advertisement or theatrical narration.'
+          )
+
+          def path_of(v):
+              if isinstance(v,str): return v
+              if isinstance(v,dict):
+                  for k in ('path','name','url'):
+                      x=v.get(k)
+                      if isinstance(x,str) and x: return x
+              if isinstance(v,(tuple,list)):
+                  for x in v:
+                      try: return path_of(x)
+                      except Exception: pass
+              raise RuntimeError(repr(v))
+
+          def generate(control, ref=None):
+              last=None
+              for attempt in range(1,16):
+                  try:
+                      return client.predict(
+                          text,
+                          control,
+                          handle_file(ref) if ref else None,
+                          False,
+                          '',
+                          2.0,
+                          True,
+                          False,
+                          api_name='/generate'
+                      )
+                  except Exception as exc:
+                      last=exc
+                      s=str(exc).lower()
+                      if 'queue is full' in s or 'busy' in s or '429' in s:
+                          time.sleep(min(20+attempt*3,50))
+                          continue
+                      raise
+              raise RuntimeError(f'Falhou após tentativas: {last}')
+
+          tests=[
+              ('B_voxcpm_puro', control_pure, None),
+              ('C_hibrido_moneyprinter_voxcpm', control_hybrid, 'hybrid_test/A_moneyprinter_br005.mp3'),
+          ]
+
+          report={'text':text,'tests':[]}
+          for slug,control,ref in tests:
+              print('===',slug,'===',flush=True)
+              res=generate(control,ref)
+              src=Path(path_of(res))
+              if not src.exists() or src.stat().st_size < 5000:
+                  raise RuntimeError(f'Áudio inválido: {src}')
+              suffix=src.suffix.lower() or '.mp3'
+              dst=out/f'{slug}{suffix}'
+              shutil.copy2(src,dst)
+              report['tests'].append({'name':slug,'file':dst.name,'bytes':dst.stat().st_size,'reference':ref})
+
+          (out/'texto_teste.txt').write_text(text+'\n',encoding='utf-8')
+          (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+
+      - name: Create loudness-matched listening copies
+        run: |
+          for f in hybrid_test/A_moneyprinter_br005.mp3 hybrid_test/B_voxcpm_puro.* hybrid_test/C_hibrido_moneyprinter_voxcpm.*; do
+            [ -f "$f" ] || continue
+            base="$(basename "$f")"
+            stem="${base%.*}"
+            ffmpeg -y -loglevel error -i "$f" -af "loudnorm=I=-16:LRA=7:TP=-1.5" -c:a libmp3lame -q:a 2 "hybrid_test/${stem}_MATCHED.mp3"
+          done
+
+      - name: Verify
+        run: |
+          for f in hybrid_test/*.mp3; do
+            echo "--- $f"
+            ffprobe -v error -show_entries format=duration,format_name -of default=nw=1 "$f"
+          done
+
+      - name: Upload comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: ze-moneyvox-hybrid-${{ github.run_id }}
+          path: hybrid_test/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Comment issue
+        if: ${{ github.event_name == 'issues' && always() }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ok = '${{ job.status }}' === 'success';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: ok
+                ? `✅ Comparação híbrida pronta. Artifact **ze-moneyvox-hybrid-${context.runId}** com A=MoneyPrinter, B=VoxCPM2 puro e C=MoneyPrinter→VoxCPM2.\n\n${runUrl}`
+                : `❌ Teste híbrido falhou. Logs:\n\n${runUrl}`
+            });
