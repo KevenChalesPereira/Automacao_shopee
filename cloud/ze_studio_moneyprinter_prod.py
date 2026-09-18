@@ -190,38 +190,48 @@ def moneyprinter_download_episode_photos() -> None:
         suffix = ".png" if ".png" in url.lower().split("?")[0] else ".jpg"
         raw = dyn.ASSETS / f"episode_raw_{idx:02d}{suffix}"
         last = None
-        for attempt in range(1, 6):
-            try:
-                response = requests.get(
-                    url,
-                    headers={
-                        "User-Agent": "ZeCuriosoStudio/1.0 (GitHub Actions; KevenChalesPereira/Automacao_shopee)",
-                        "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8",
-                    },
-                    timeout=60,
-                )
-                if response.status_code == 429:
-                    retry_after = response.headers.get("Retry-After")
-                    delay = float(retry_after) if retry_after and retry_after.isdigit() else min(2.0 * attempt, 8.0)
-                    print("WIKIMEDIA_429_RETRY", idx, attempt, delay, flush=True)
-                    time.sleep(delay)
-                    continue
-                response.raise_for_status()
-                raw.write_bytes(response.content)
-                if raw.stat().st_size < 10_000:
-                    raise RuntimeError("imagem pequena")
-                dyn.Image.open(raw).verify()
-                im = dyn.Image.open(raw).convert("RGB")
-                im.save(target, quality=94)
-                cache[url] = target
-                print("EPISODE_IMAGE_OK", idx, url, flush=True)
-                time.sleep(0.65)
+        proxy_url = "https://wsrv.nl/?url=" + urllib.parse.quote(url, safe="") + "&w=1400&output=jpg"
+        sources = [url, proxy_url]
+        downloaded = False
+        for source_no, source_url in enumerate(sources, 1):
+            for attempt in range(1, 4):
+                try:
+                    response = requests.get(
+                        source_url,
+                        headers={
+                            "User-Agent": "ZeCuriosoStudio/1.0 (GitHub Actions; KevenChalesPereira/Automacao_shopee)",
+                            "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8",
+                        },
+                        timeout=60,
+                    )
+                    if response.status_code == 429:
+                        last = RuntimeError(f"HTTP 429 from source {source_no}")
+                        print("IMAGE_429_SWITCH_OR_RETRY", idx, source_no, attempt, flush=True)
+                        # Switch quickly to the CDN proxy instead of spending ~50 s
+                        # retrying a Wikimedia edge that already blocked this runner.
+                        if source_no == 1:
+                            break
+                        time.sleep(min(1.5 * attempt, 4.0))
+                        continue
+                    response.raise_for_status()
+                    raw.write_bytes(response.content)
+                    if raw.stat().st_size < 10_000:
+                        raise RuntimeError("imagem pequena")
+                    dyn.Image.open(raw).verify()
+                    im = dyn.Image.open(raw).convert("RGB")
+                    im.save(target, quality=94)
+                    cache[url] = target
+                    print("EPISODE_IMAGE_OK", idx, "direct" if source_no == 1 else "cdn-proxy", url, flush=True)
+                    time.sleep(0.4)
+                    downloaded = True
+                    break
+                except Exception as exc:
+                    last = exc
+                    if attempt < 3:
+                        time.sleep(min(1.2 * attempt, 3.0))
+            if downloaded:
                 break
-            except Exception as exc:
-                last = exc
-                if attempt < 5:
-                    time.sleep(min(1.5 * attempt, 6.0))
-        else:
+        if not downloaded:
             # A scene should not kill the whole episode when a CDN throttles.
             # Reuse the immediately previous accurate subject image.
             if idx > 1 and (dyn.ASSETS / f"frog_{idx-1:02d}.jpg").exists():
