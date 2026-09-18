@@ -70,26 +70,57 @@ def moneyprinter_choose_episode(request: dict) -> dict:
         return prod.choose_episode(request)
 
     explicit = str(request.get("theme") or "").strip()
+    history_path = Path("data/ze_moneyprinter_history.json")
+    history_rows = []
+    if history_path.exists():
+        try:
+            history = json.loads(history_path.read_text(encoding="utf-8"))
+            history_rows = list(history.get("topics", []))
+        except Exception as exc:
+            print("MONEYPRINTER_HISTORY_WARN", repr(exc), flush=True)
+
+    blocked_topics = [
+        str(row.get("topic") or "").strip()
+        for row in history_rows
+        if str(row.get("topic") or "").strip()
+    ]
+    blocked_sources = {
+        str(row.get("source") or "").split("#", 1)[0].rstrip("/").lower()
+        for row in history_rows
+        if str(row.get("source") or "").strip().startswith("http")
+    }
+
     if explicit:
         plan = mp.plan_explicit_theme(explicit)
+        theme = str(plan.get("theme") or plan.get("wikipedia_query") or "").strip()
+        wiki_query = str(plan.get("wikipedia_query") or theme).strip()
+        if not theme:
+            raise RuntimeError("MoneyPrinter topic planner returned no theme")
+        wiki = _moneyprinter_wikipedia_topic(wiki_query)
     else:
-        history_path = Path("data/ze_moneyprinter_history.json")
-        blocked_topics = []
-        if history_path.exists():
-            try:
-                history = json.loads(history_path.read_text(encoding="utf-8"))
-                blocked_topics = [str(row.get("topic") or "").strip() for row in history.get("topics", []) if str(row.get("topic") or "").strip()]
-            except Exception as exc:
-                print("MONEYPRINTER_HISTORY_WARN", repr(exc), flush=True)
-        plan = mp.propose_fresh_topic(extra_blacklist=blocked_topics)
-        plan["history_blacklist_count"] = len(blocked_topics)
-
-    theme = str(plan.get("theme") or plan.get("wikipedia_query") or "").strip()
-    wiki_query = str(plan.get("wikipedia_query") or theme).strip()
-    if not theme:
-        raise RuntimeError("MoneyPrinter topic planner returned no theme")
-
-    wiki = _moneyprinter_wikipedia_topic(wiki_query)
+        wiki = None
+        plan = None
+        theme = ""
+        # A textual blacklist catches aliases; the source-URL check catches the
+        # same subject proposed under a different wording.
+        for planner_attempt in range(1, 6):
+            plan = mp.propose_fresh_topic(extra_blacklist=blocked_topics)
+            theme = str(plan.get("theme") or plan.get("wikipedia_query") or "").strip()
+            wiki_query = str(plan.get("wikipedia_query") or theme).strip()
+            if not theme:
+                continue
+            candidate = _moneyprinter_wikipedia_topic(wiki_query)
+            source_key = str(candidate["page_url"]).split("#", 1)[0].rstrip("/").lower()
+            if source_key in blocked_sources:
+                print("MONEYPRINTER_DUPLICATE_REJECT", planner_attempt, theme, candidate["page_url"], flush=True)
+                blocked_topics.append(theme)
+                continue
+            wiki = candidate
+            plan["history_blacklist_count"] = len(history_rows)
+            plan["freshness_check"] = "topic blacklist + source URL unique"
+            break
+        if wiki is None or plan is None:
+            raise RuntimeError("MoneyPrinter não encontrou tema inédito após 5 tentativas")
     script = mp.script_from_grounded_source(theme, wiki["title"], wiki["extract"])
     _validate_script(script)
 
