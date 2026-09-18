@@ -280,6 +280,10 @@ TAMANHO:
 - corpo total entre 55 e 75 palavras antes do bordão.
 - no máximo 2 frases por cena.
 - nenhuma frase com mais de 14 palavras.
+- REGRA OBRIGATÓRIA PARA VOZ: dentro de "blocks", NUNCA use algarismos ou abreviações de unidade.
+- escreva TODO número e unidade por extenso em português do Brasil.
+- exemplos: "218 dB" vira "duzentos e dezoito decibéis"; "4700°C" vira "quatro mil e setecentos graus Celsius"; "100 J" vira "cem joules".
+- algarismos podem aparecer somente em search_terms/metadata, nunca no texto falado.
 
 TÍTULOS:
 - 2 linhas por cena.
@@ -293,17 +297,37 @@ Fonte: {source_title}
 TEXTO-FONTE:
 {source_text}
 """
-    return _parse_json_text(_groq([
-        {
-            "role": "system",
-            "content": (
-                "Você é o roteirista de retenção do MoneyPrinter adaptado ao Zé Curioso. "
-                "Seu trabalho é transformar um fato verdadeiro em uma história oral simples, curta e viciante. "
-                "Fatos vêm da fonte; o estilo vem de conversa informal brasileira."
-            ),
-        },
-        {"role": "user", "content": prompt},
-    ], temperature=0.45))
+    system = {
+        "role": "system",
+        "content": (
+            "Você é o roteirista de retenção do MoneyPrinter adaptado ao Zé Curioso. "
+            "Seu trabalho é transformar um fato verdadeiro em uma história oral simples, curta e viciante. "
+            "Fatos vêm da fonte; o estilo vem de conversa informal brasileira. "
+            "O texto falado deve ser totalmente pronunciável em pt-BR: sem algarismos e sem abreviações de unidade."
+        ),
+    }
+    last = None
+    for attempt in range(1, 4):
+        extra = "" if attempt == 1 else (
+            "\nCORREÇÃO OBRIGATÓRIA: a resposta anterior tinha algarismos no texto falado. "
+            "Reescreva TODOS os blocks com números e unidades por extenso em português. "
+            "Não altere os fatos."
+        )
+        data = _parse_json_text(_groq([
+            system,
+            {"role": "user", "content": prompt + extra},
+        ], temperature=0.45 if attempt == 1 else 0.2))
+        spoken = " ".join(
+            str(x)
+            for row in list(data.get("blocks") or [])
+            for x in (row if isinstance(row, list) else [])
+        )
+        if not re.search(r"\d", spoken):
+            data["spoken_numbers_normalized_ptbr"] = True
+            return data
+        last = spoken
+        print("MONEYPRINTER_NUMBER_RETRY", attempt, spoken, flush=True)
+    raise RuntimeError(f"Roteiro ainda contém algarismos no texto falado: {last}")
 
 def metadata_from_script(video_subject: str, script: str) -> dict:
     """Hosted adaptation of MoneyPrinter Backend/gpt.py generate_metadata()."""
