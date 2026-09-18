@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "topics": [
+    {
+      "topic": "sapo-da-floresta / wood frog",
+      "source": "legacy Zé catalog"
+    },
+    {
+      "topic": "axolote / axolotl",
+      "source": "legacy Zé catalog"
+    },
+    {
+      "topic": "tardígrado / tardigrade",
+      "source": "legacy Zé catalog"
+    },
+    {
+      "topic": "besouro-bombardeiro / bombardier beetle",
+      "source": "legacy Zé catalog"
+    },
+    {
+      "topic": "Turritopsis dohrnii / água-viva-imortal",
+      "source": "legacy Zé catalog"
+    },
+    {
+      "topic": "camarão-louva-a-deus / Stomatopoda / mantis shrimp",
+      "source": "MoneyPrinter integration validation"
+    }
+  ]
+}
