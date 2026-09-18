@@ -24,6 +24,12 @@
     {
       "topic": "camarão-louva-a-deus / Stomatopoda / mantis shrimp",
       "source": "MoneyPrinter integration validation"
+    },
+    {
+      "id": "moneyprinter-b5fe54ea89",
+      "topic": "Formiga zumbi",
+      "source": "https://pt.wikipedia.org/wiki/Ophiocordyceps_unilateralis",
+      "run_id": "35406433340"
     }
   ]
 }
