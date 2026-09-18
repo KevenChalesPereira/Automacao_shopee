@@ -39,12 +39,7 @@ def moneyprinter_choose_episode(request: dict) -> dict:
 
     explicit = str(request.get("theme") or "").strip()
     if explicit:
-        plan = {
-            "theme": explicit,
-            "wikipedia_query": explicit,
-            "pexels_queries": [explicit],
-            "hook": explicit,
-        }
+        plan = mp.plan_explicit_theme(explicit)
     else:
         plan = mp.propose_fresh_topic()
 
