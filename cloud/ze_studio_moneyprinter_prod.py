@@ -44,9 +44,23 @@ def _moneyprinter_wikipedia_topic(query: str) -> dict:
     # longest extract, which could replace a specific animal with a broad taxon.
     page = min(pages, key=lambda p: int(p.get("index", 999999)))
     title = page["title"]
+
+    # MoneyPrinter needs more than the lead paragraph to find the strongest
+    # curiosity. Fetch the article text after selecting the relevant page.
+    full = dyn._http_json("https://pt.wikipedia.org/w/api.php", {
+        "action": "query",
+        "titles": title,
+        "prop": "extracts",
+        "explaintext": 1,
+        "redirects": 1,
+        "format": "json",
+        "formatversion": 2,
+    })
+    full_pages = full.get("query", {}).get("pages", [])
+    full_extract = next((str(x.get("extract") or "") for x in full_pages if x.get("extract")), "")
     return {
         "title": title,
-        "extract": page.get("extract", ""),
+        "extract": full_extract or page.get("extract", ""),
         "page_url": "https://pt.wikipedia.org/wiki/" + dyn.urllib.parse.quote(title.replace(" ", "_")),
         "original_image": (page.get("original") or {}).get("source"),
     }
