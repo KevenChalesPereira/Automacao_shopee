@@ -5,7 +5,10 @@ import json
 import os
 import shutil
 import subprocess
+import time
 import urllib.request
+
+import requests
 from pathlib import Path
 
 import moneyprinter_bridge as mp
@@ -171,8 +174,62 @@ def _download_stock_frame(url: str, target: Path, index: int) -> bool:
 
 
 def moneyprinter_download_episode_photos() -> None:
-    # Accurate Commons/Wikipedia images remain the factual baseline.
-    _original_download_photos()
+    # Accurate Commons/Wikipedia images remain the factual baseline, but use a
+    # rate-limit-safe downloader. Repeated URLs are copied locally instead of
+    # hitting Wikimedia again.
+    cache: dict[str, Path] = {}
+    urls = list(dyn.EPISODE["image_urls"])
+    for idx in range(1, 6):
+        url = urls[idx - 1]
+        target = dyn.ASSETS / f"frog_{idx:02d}.jpg"
+        if url in cache and cache[url].exists():
+            shutil.copy2(cache[url], target)
+            print("EPISODE_IMAGE_CACHE_OK", idx, url, flush=True)
+            continue
+
+        suffix = ".png" if ".png" in url.lower().split("?")[0] else ".jpg"
+        raw = dyn.ASSETS / f"episode_raw_{idx:02d}{suffix}"
+        last = None
+        for attempt in range(1, 6):
+            try:
+                response = requests.get(
+                    url,
+                    headers={
+                        "User-Agent": "ZeCuriosoStudio/1.0 (GitHub Actions; KevenChalesPereira/Automacao_shopee)",
+                        "Accept": "image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8",
+                    },
+                    timeout=60,
+                )
+                if response.status_code == 429:
+                    retry_after = response.headers.get("Retry-After")
+                    delay = float(retry_after) if retry_after and retry_after.isdigit() else min(2.0 * attempt, 8.0)
+                    print("WIKIMEDIA_429_RETRY", idx, attempt, delay, flush=True)
+                    time.sleep(delay)
+                    continue
+                response.raise_for_status()
+                raw.write_bytes(response.content)
+                if raw.stat().st_size < 10_000:
+                    raise RuntimeError("imagem pequena")
+                dyn.Image.open(raw).verify()
+                im = dyn.Image.open(raw).convert("RGB")
+                im.save(target, quality=94)
+                cache[url] = target
+                print("EPISODE_IMAGE_OK", idx, url, flush=True)
+                time.sleep(0.65)
+                break
+            except Exception as exc:
+                last = exc
+                if attempt < 5:
+                    time.sleep(min(1.5 * attempt, 6.0))
+        else:
+            # A scene should not kill the whole episode when a CDN throttles.
+            # Reuse the immediately previous accurate subject image.
+            if idx > 1 and (dyn.ASSETS / f"frog_{idx-1:02d}.jpg").exists():
+                shutil.copy2(dyn.ASSETS / f"frog_{idx-1:02d}.jpg", target)
+                print("EPISODE_IMAGE_RATE_LIMIT_FALLBACK", idx, repr(last), flush=True)
+            else:
+                raise RuntimeError(f"Falha ao baixar imagem {idx}: {last}")
+
     stock = list((dyn.EPISODE.get("moneyprinter") or {}).get("pexels_stock_videos") or [])
     # MoneyPrinter media becomes visibly part of the video where available.
     # Use alternating scenes so the exact-subject Wikimedia image still anchors it.
