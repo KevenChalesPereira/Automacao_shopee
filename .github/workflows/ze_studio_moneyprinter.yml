@@ -37,6 +37,7 @@ jobs:
           sudo apt-get install -y -qq ffmpeg unzip fonts-dejavu-core curl >/dev/null
           python -m pip install --upgrade pip >/dev/null
           python -m pip install 'gradio_client>=1.8,<2' pillow 'faster-whisper>=1.1,<2' numpy requests >/dev/null
+          git fetch origin ze-curioso-v24:refs/remotes/origin/ze-curioso-v24
           python -m py_compile             cloud/moneyprinter_bridge.py             cloud/ze_moneyprinter_voice.py             cloud/ze_studio_dynamic.py             cloud/ze_studio_dynamic_prod.py             cloud/ze_studio_moneyprinter_prod.py
 
       - name: Build request
