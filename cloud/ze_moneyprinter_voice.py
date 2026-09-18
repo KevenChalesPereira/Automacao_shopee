@@ -10,8 +10,10 @@ audio remains a usable fallback instead of failing the whole video.
 import json
 import shutil
 import time
+import wave
 from pathlib import Path
 
+import numpy as np
 import moneyprinter_bridge as mp
 
 
@@ -39,6 +41,41 @@ def install(vf) -> None:
             "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", str(ref),
         ])
         return source, ref
+
+    def _roughness_metrics(path: Path) -> dict:
+        # Simple hoarseness proxy: clean voiced speech is periodic and has low
+        # spectral flatness; rough/breathy takes lose periodicity and gain noise.
+        with wave.open(str(path), "rb") as wf:
+            sr = wf.getframerate()
+            channels = wf.getnchannels()
+            samples = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16).astype(np.float32)
+        if channels > 1:
+            samples = samples.reshape(-1, channels).mean(axis=1)
+        samples /= 32768.0
+        frame = max(480, int(sr * 0.030))
+        hop = max(240, int(sr * 0.015))
+        window = np.hanning(frame).astype(np.float32)
+        periodicity = []
+        flatness = []
+        for pos in range(0, max(0, len(samples) - frame), hop):
+            y = samples[pos:pos + frame]
+            rms = float(np.sqrt(np.mean(y * y) + 1e-12))
+            if rms < 0.010:
+                continue
+            z = (y - float(np.mean(y))) * window
+            ac = np.correlate(z, z, mode="full")[frame - 1:]
+            base = float(ac[0]) + 1e-12
+            lo = max(1, int(sr / 400.0))
+            hi = min(len(ac), int(sr / 70.0))
+            if hi > lo:
+                periodicity.append(float(np.max(ac[lo:hi]) / base))
+            spectrum = np.abs(np.fft.rfft(z)) + 1e-9
+            flatness.append(float(np.exp(np.mean(np.log(spectrum))) / np.mean(spectrum)))
+        return {
+            "periodicity_mean": round(float(np.mean(periodicity)) if periodicity else 0.0, 5),
+            "periodicity_median": round(float(np.median(periodicity)) if periodicity else 0.0, 5),
+            "spectral_flatness_mean": round(float(np.mean(flatness)) if flatness else 1.0, 5),
+        }
 
     def _analyze(model, raw: Path, expected_text: str, critical: set[str]) -> dict:
         expected = v4.words_from_text(expected_text)
@@ -101,8 +138,17 @@ def install(vf) -> None:
         } for w in words]
         return shifted, tempo
 
-    def _hybrid_generate(text: str, stem: str, critical: set[str], control: str, max_attempts: int = 4):
+    def _hybrid_generate(
+        text: str,
+        stem: str,
+        critical: set[str],
+        control: str,
+        max_attempts: int = 4,
+        roughness_guard: bool = False,
+        min_attempts: int = 1,
+    ):
         source_mp3, ref_wav = _prepare_reference(text, stem)
+        reference_roughness = _roughness_metrics(ref_wav) if roughness_guard else None
         model = v4.WhisperModel("small", device="cpu", compute_type="int8")
         client = cont.base.Client("openbmb/VoxCPM-Demo", verbose=False)
         ref = cont.base.handle_file(str(ref_wav))
@@ -139,6 +185,17 @@ def install(vf) -> None:
                     - len(a["missing"]) * 0.8
                     - abs(a["wpm"] - 170.0) / 100.0
                 )
+                rough = _roughness_metrics(raw) if roughness_guard else {}
+                rough_ok = True
+                if roughness_guard and reference_roughness:
+                    min_periodicity = max(0.48, float(reference_roughness["periodicity_mean"]) * 0.82)
+                    max_flatness = max(0.035, float(reference_roughness["spectral_flatness_mean"]) * 3.0)
+                    rough_ok = (
+                        float(rough.get("periodicity_mean", 0.0)) >= min_periodicity
+                        and float(rough.get("spectral_flatness_mean", 1.0)) <= max_flatness
+                    )
+                    score += float(rough.get("periodicity_mean", 0.0)) * 1.5
+                    score -= float(rough.get("spectral_flatness_mean", 1.0)) * 8.0
                 row = {
                     "attempt": attempt,
                     "path": raw.name,
@@ -149,16 +206,21 @@ def install(vf) -> None:
                     "source_wpm": round(a["wpm"], 2),
                     "score": round(score, 5),
                     "transcript": a["transcript"],
+                    "roughness_guard": roughness_guard,
+                    "roughness_ok": rough_ok,
+                    "reference_roughness": reference_roughness,
+                    **rough,
                     **stab,
                 }
                 rows.append(row)
                 print("MONEYVOX_QA", json.dumps(row, ensure_ascii=False), flush=True)
-                if a["ratio"] >= 0.91 and not a["missing"]:
+                if a["ratio"] >= 0.91 and not a["missing"] and rough_ok:
                     valid.append((score, raw, a, row))
                     # Do not spend extra VoxCPM queue time once a take is already
                     # text-clean and prosodically stable.
                     if (
-                        a["ratio"] >= 0.97
+                        attempt >= min_attempts
+                        and a["ratio"] >= 0.97
                         and float(stab.get("stability_score", 0.0)) >= 0.70
                         and float(stab.get("pitch_section_drift", 9.0)) <= 0.15
                         and float(stab.get("f0_jitter", 9.0)) <= 0.04
@@ -241,7 +303,15 @@ def install(vf) -> None:
             "Use the same slightly lower natural pitch center and warmer chest tone as the body. "
             "Do not shout and do not sound like an announcer or advertisement."
         )
-        raw, analysis, selected, rows, mode = _hybrid_generate(text, "signoff", critical, control, 3)
+        raw, analysis, selected, rows, mode = _hybrid_generate(
+            text,
+            "signoff",
+            critical,
+            control,
+            max_attempts=4,
+            roughness_guard=True,
+            min_attempts=3,
+        )
         final = AUDIO / "signoff_final.wav"
         shifted, tempo = _finalize(raw, analysis, final, 165.0, pitch_factor=0.97)
         selected = {
@@ -251,6 +321,7 @@ def install(vf) -> None:
             "moneyprinter_voice": "br_005",
             "playback_tempo": round(tempo, 6),
             "accepted_file": final.name,
+            "roughness_protection": "periodicity + spectral-flatness guard; MoneyPrinter fallback if all hybrid takes are rough",
         }
         (POST / "signoff_qa.json").write_text(
             json.dumps({"selected": selected, "candidates": rows, "expected_signoff": text}, ensure_ascii=False, indent=2),
