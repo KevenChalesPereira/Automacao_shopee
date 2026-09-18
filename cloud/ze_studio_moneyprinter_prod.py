@@ -73,7 +73,16 @@ def moneyprinter_choose_episode(request: dict) -> dict:
     if explicit:
         plan = mp.plan_explicit_theme(explicit)
     else:
-        plan = mp.propose_fresh_topic()
+        history_path = Path("data/ze_moneyprinter_history.json")
+        blocked_topics = []
+        if history_path.exists():
+            try:
+                history = json.loads(history_path.read_text(encoding="utf-8"))
+                blocked_topics = [str(row.get("topic") or "").strip() for row in history.get("topics", []) if str(row.get("topic") or "").strip()]
+            except Exception as exc:
+                print("MONEYPRINTER_HISTORY_WARN", repr(exc), flush=True)
+        plan = mp.propose_fresh_topic(extra_blacklist=blocked_topics)
+        plan["history_blacklist_count"] = len(blocked_topics)
 
     theme = str(plan.get("theme") or plan.get("wikipedia_query") or "").strip()
     wiki_query = str(plan.get("wikipedia_query") or theme).strip()
