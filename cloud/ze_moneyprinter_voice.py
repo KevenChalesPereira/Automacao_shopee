@@ -8,12 +8,14 @@ audio remains a usable fallback instead of failing the whole video.
 """
 
 import json
+import os
 import shutil
 import time
 import wave
 from pathlib import Path
 
 import numpy as np
+import requests
 import moneyprinter_bridge as mp
 
 
@@ -138,6 +140,36 @@ def install(vf) -> None:
         } for w in words]
         return shifted, tempo
 
+    def _elevenlabs_change(source_mp3: Path, stem: str) -> Path:
+        api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+        voice_id = os.getenv("ELEVENLABS_VOICE_ID", "").strip()
+        if not api_key or not voice_id:
+            raise RuntimeError("ElevenLabs not configured")
+        endpoint = f"https://api.elevenlabs.io/v1/speech-to-speech/{voice_id}"
+        with source_mp3.open("rb") as fh:
+            response = requests.post(
+                endpoint,
+                params={"output_format": "mp3_44100_128"},
+                headers={"xi-api-key": api_key},
+                files={"audio": (source_mp3.name, fh, "audio/mpeg")},
+                data={
+                    "model_id": "eleven_multilingual_sts_v2",
+                    "remove_background_noise": "true",
+                },
+                timeout=180,
+            )
+        response.raise_for_status()
+        out_mp3 = AUDIO / f"{stem}_elevenlabs_voice_changer.mp3"
+        out_mp3.write_bytes(response.content)
+        if out_mp3.stat().st_size < 5000:
+            raise RuntimeError("ElevenLabs returned audio too small")
+        out_wav = AUDIO / f"{stem}_elevenlabs_voice_changer.wav"
+        v4.run([
+            "ffmpeg", "-y", "-loglevel", "error", "-i", str(out_mp3),
+            "-ar", "48000", "-ac", "1", "-c:a", "pcm_s16le", str(out_wav),
+        ])
+        return out_wav
+
     def _hybrid_generate(
         text: str,
         stem: str,
@@ -150,11 +182,52 @@ def install(vf) -> None:
         source_mp3, ref_wav = _prepare_reference(text, stem)
         reference_roughness = _roughness_metrics(ref_wav) if roughness_guard else None
         model = v4.WhisperModel("small", device="cpu", compute_type="int8")
-        client = cont.base.Client("openbmb/VoxCPM-Demo", verbose=False)
-        ref = cont.base.handle_file(str(ref_wav))
 
         rows = []
         valid = []
+
+        # Preferred optional path: keep MoneyPrinter's delivery but convert it
+        # to one fixed ElevenLabs character voice. If credentials/voice are not
+        # configured, or the converted take fails QA, fall back to VoxCPM2.
+        if os.getenv("ELEVENLABS_API_KEY", "").strip() and os.getenv("ELEVENLABS_VOICE_ID", "").strip():
+            try:
+                raw = _elevenlabs_change(source_mp3, stem)
+                a = _analyze(model, raw, text, critical)
+                stab = a["metrics"]
+                rough = _roughness_metrics(raw) if roughness_guard else {}
+                rough_ok = True
+                if roughness_guard and reference_roughness:
+                    min_periodicity = max(0.48, float(reference_roughness["periodicity_mean"]) * 0.82)
+                    max_flatness = max(0.035, float(reference_roughness["spectral_flatness_mean"]) * 3.0)
+                    rough_ok = (
+                        float(rough.get("periodicity_mean", 0.0)) >= min_periodicity
+                        and float(rough.get("spectral_flatness_mean", 1.0)) <= max_flatness
+                    )
+                row = {
+                    "attempt": 0,
+                    "path": raw.name,
+                    "engine": "MoneyPrinter br_005 -> ElevenLabs Voice Changer",
+                    "model": "eleven_multilingual_sts_v2",
+                    "asr_ratio": round(a["ratio"], 4),
+                    "missing_critical": a["missing"],
+                    "source_wpm": round(a["wpm"], 2),
+                    "transcript": a["transcript"],
+                    "roughness_guard": roughness_guard,
+                    "roughness_ok": rough_ok,
+                    "reference_roughness": reference_roughness,
+                    **rough,
+                    **stab,
+                }
+                rows.append(row)
+                print("ELEVENLABS_VOICE_QA", json.dumps(row, ensure_ascii=False), flush=True)
+                if a["ratio"] >= 0.91 and not a["missing"] and rough_ok:
+                    return raw, a, row, rows, "elevenlabs-voice-changer"
+                print("ELEVENLABS_VOICE_REJECTED", stem, flush=True)
+            except Exception as exc:
+                print("ELEVENLABS_VOICE_WARN", stem, repr(exc), flush=True)
+
+        client = cont.base.Client("openbmb/VoxCPM-Demo", verbose=False)
+        ref = cont.base.handle_file(str(ref_wav))
         for attempt in range(1, max_attempts + 1):
             try:
                 print(f"MONEYVOX_{stem.upper()}_ATTEMPT {attempt}", flush=True)
