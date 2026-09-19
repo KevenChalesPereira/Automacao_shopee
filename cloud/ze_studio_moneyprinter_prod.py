@@ -152,6 +152,19 @@ def moneyprinter_choose_episode(request: dict) -> dict:
         if value and value.lower() not in [x.lower() for x in search_terms]:
             search_terms.append(value)
 
+    scene_visuals = list(script.get("scene_visuals") or [])
+    if len(scene_visuals) != 5:
+        fallback_terms = list(script.get("search_terms") or [])
+        scene_visuals = []
+        for idx in range(5):
+            q = str(fallback_terms[idx] if idx < len(fallback_terms) else wiki["title"]).strip()
+            scene_visuals.append({
+                "query": q,
+                "fallback_query": wiki["title"],
+                "must_terms": [wiki["title"]],
+                "fallback_generated": True,
+            })
+
     episode = {
         "id": "moneyprinter-" + hashlib.sha1((theme + wiki["title"]).encode("utf-8")).hexdigest()[:10],
         "topic": str(script.get("topic") or theme),
@@ -169,6 +182,7 @@ def moneyprinter_choose_episode(request: dict) -> dict:
             "license": "MIT",
             "topic_plan": plan,
             "search_terms": search_terms,
+            "scene_visuals": scene_visuals,
             "script_stage": "MoneyPrinter generate_script/get_search_terms architecture via Groq on GitHub Actions",
             "tts_voice": "br_005",
             "voice_pass": "MoneyPrinter br_005 -> VoxCPM2",
@@ -206,11 +220,16 @@ def moneyprinter_enrich(episode: dict) -> dict:
     else:
         raise RuntimeError(f"MoneyPrinter media search failed after {attempts}: {last}")
 
-    terms = list((episode.get("moneyprinter") or {}).get("search_terms") or [])
-    stock = mp.collect_stock_videos(terms, max_videos=5) if terms else []
-    episode.setdefault("moneyprinter", {})["pexels_stock_videos"] = stock
+    scene_visuals = list((episode.get("moneyprinter") or {}).get("scene_visuals") or [])
+    scene_media = mp.collect_scene_media(scene_visuals) if scene_visuals else []
+    episode.setdefault("moneyprinter", {})["pexels_scene_media"] = scene_media
     episode["moneyprinter"]["pexels_enabled"] = bool(os.getenv("PEXELS_API_KEY", "").strip())
-    episode["moneyprinter"]["pexels_results"] = len(stock)
+    episode["moneyprinter"]["pexels_results"] = sum(1 for x in scene_media if x.get("accepted"))
+    episode["moneyprinter"]["pexels_rejected_scenes"] = [
+        int(x.get("scene"))
+        for x in scene_media
+        if not x.get("accepted") and x.get("scene")
+    ]
     return episode
 
 
@@ -229,6 +248,26 @@ def _download_stock_frame(url: str, target: Path, index: int) -> bool:
         return target.exists() and target.stat().st_size > 10_000
     except Exception as exc:
         print("MONEYPRINTER_STOCK_FRAME_WARN", index, repr(exc), flush=True)
+        return False
+
+
+def _download_stock_photo(url: str, target: Path, index: int) -> bool:
+    try:
+        response = requests.get(
+            url,
+            headers={"User-Agent": "ZeCurioso-MoneyPrinter/1.0"},
+            timeout=60,
+        )
+        response.raise_for_status()
+        raw = target.parent / f"moneyprinter_stock_photo_{index:02d}.jpg"
+        raw.write_bytes(response.content)
+        if raw.stat().st_size < 10_000:
+            return False
+        im = dyn.Image.open(raw).convert("RGB")
+        im.save(target, quality=94)
+        return target.exists() and target.stat().st_size > 10_000
+    except Exception as exc:
+        print("MONEYPRINTER_PEXELS_PHOTO_WARN", index, repr(exc), flush=True)
         return False
 
 
@@ -301,15 +340,40 @@ def moneyprinter_download_episode_photos() -> None:
             else:
                 raise RuntimeError(f"Falha ao baixar imagem {idx}: {last}")
 
-    stock = list((dyn.EPISODE.get("moneyprinter") or {}).get("pexels_stock_videos") or [])
-    # MoneyPrinter media becomes visibly part of the video where available.
-    # Use alternating scenes so the exact-subject Wikimedia image still anchors it.
-    for slot, scene in enumerate((2, 4), 0):
-        if slot >= len(stock):
-            break
+    scene_media = list((dyn.EPISODE.get("moneyprinter") or {}).get("pexels_scene_media") or [])
+    # Pexels may replace the factual baseline only when that exact scene passed
+    # the relevance threshold. Weak/generic results leave Wikimedia untouched.
+    for item in scene_media:
+        if not item.get("accepted"):
+            print(
+                "MONEYPRINTER_PEXELS_SCENE_REJECTED",
+                item.get("scene"),
+                item.get("planned_query"),
+                flush=True,
+            )
+            continue
+        scene = int(item.get("scene") or 0)
+        if scene < 1 or scene > 5:
+            continue
         target = dyn.ASSETS / f"frog_{scene:02d}.jpg"
-        if _download_stock_frame(str(stock[slot].get("url") or ""), target, scene):
-            print("MONEYPRINTER_PEXELS_FRAME_OK", scene, stock[slot].get("query"), flush=True)
+        media_type = str(item.get("media_type") or "")
+        url = str(item.get("url") or "")
+        ok = False
+        if media_type == "video":
+            ok = _download_stock_frame(url, target, scene)
+        elif media_type == "photo":
+            ok = _download_stock_photo(url, target, scene)
+        if ok:
+            print(
+                "MONEYPRINTER_PEXELS_SCENE_OK",
+                scene,
+                media_type,
+                item.get("query"),
+                item.get("score"),
+                flush=True,
+            )
+        else:
+            print("MONEYPRINTER_PEXELS_SCENE_DOWNLOAD_FALLBACK", scene, flush=True)
 
 
 def moneyprinter_rewrite_outputs(episode: dict) -> None:
@@ -372,7 +436,8 @@ def moneyprinter_rewrite_outputs(episode: dict) -> None:
             "Faster-Whisper timing QA",
             "single-pass final renderer",
         ],
-        "moneyprinter_pexels_results": len((episode.get("moneyprinter") or {}).get("pexels_stock_videos") or []),
+        "moneyprinter_pexels_results": int((episode.get("moneyprinter") or {}).get("pexels_results") or 0),
+        "moneyprinter_pexels_scene_decisions": (episode.get("moneyprinter") or {}).get("pexels_scene_media") or [],
     })
     qa_path.write_text(json.dumps(qa, ensure_ascii=False, indent=2), encoding="utf-8")
 
