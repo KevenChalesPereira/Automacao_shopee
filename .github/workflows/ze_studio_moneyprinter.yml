@@ -72,6 +72,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
           ZE_REQUEST_FILE: studio_request.json
         run: |
           unset ZE_REQUEST_JSON || true
@@ -97,6 +99,7 @@ jobs:
             post_final/audio/narration_continuous.wav
             post_final/audio/signoff_final.wav
             post_final/audio/*moneyprinter*
+            post_final/audio/*elevenlabs*
             post_final/scenes/scene_*.jpg
           if-no-files-found: error
           retention-days: 7
