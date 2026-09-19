@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
+import unicodedata
 from pathlib import Path
 
 import requests
@@ -376,39 +377,218 @@ Evite clickbait falso e não acrescente fatos que não estejam no roteiro.
         return {"title": video_subject, "description": "", "keywords": []}
 
 
-def pexels_search(query: str, api_key: str | None = None, per_page: int = 15, min_duration: int = 5) -> list[dict]:
-    """Adapted from MoneyPrinter Backend/search.py, retaining best-resolution selection."""
+def _norm_media_text(value: str) -> str:
+    value = unicodedata.normalize("NFKD", str(value or ""))
+    value = "".join(ch for ch in value if not unicodedata.combining(ch))
+    value = re.sub(r"[^a-zA-Z0-9]+", " ", value.lower())
+    return re.sub(r"\\s+", " ", value).strip()
+
+
+def _media_relevance(text: str, query: str, must_terms: list[str] | None = None) -> tuple[float, dict]:
+    hay = _norm_media_text(text)
+    q_tokens = [
+        t for t in _norm_media_text(query).split()
+        if len(t) >= 3 and t not in {"the", "and", "with", "from", "this", "that", "para", "com", "uma", "por"}
+    ]
+    must = [_norm_media_text(x) for x in list(must_terms or []) if _norm_media_text(x)]
+    query_hits = sum(1 for token in set(q_tokens) if token in hay)
+    must_hits = sum(1 for term in must if all(part in hay for part in term.split()))
+    score = min(query_hits, 4) * 0.8 + must_hits * 2.5
+    if must and must_hits == 0:
+        score -= 3.0
+    return score, {
+        "query_hits": query_hits,
+        "must_hits": must_hits,
+        "must_total": len(must),
+    }
+
+
+def pexels_search(
+    query: str,
+    api_key: str | None = None,
+    per_page: int = 30,
+    min_duration: int = 4,
+    must_terms: list[str] | None = None,
+) -> list[dict]:
+    """Pexels video search using the current v1 endpoint and scene relevance ranking."""
     key = (api_key or os.getenv("PEXELS_API_KEY", "")).strip()
     if not key:
         return []
     r = requests.get(
-        "https://api.pexels.com/videos/search",
+        "https://api.pexels.com/v1/videos/search",
         headers={"Authorization": key},
-        params={"query": query, "per_page": per_page, "orientation": "portrait"},
+        params={
+            "query": query,
+            "per_page": max(1, min(int(per_page), 80)),
+            "orientation": "portrait",
+            "size": "large",
+            "locale": "pt-BR",
+        },
         timeout=60,
     )
     r.raise_for_status()
     out = []
-    for item in r.json().get("videos", []):
-        if float(item.get("duration", 0)) < min_duration:
+    for rank, item in enumerate(r.json().get("videos", []), 1):
+        duration = float(item.get("duration", 0) or 0)
+        if duration < min_duration:
             continue
-        files = [x for x in item.get("video_files", []) if x.get("link")]
+        files = [
+            x for x in item.get("video_files", [])
+            if x.get("link") and str(x.get("file_type") or "video/mp4").startswith("video/")
+        ]
         if not files:
             continue
-        best = max(files, key=lambda x: int(x.get("width", 0)) * int(x.get("height", 0)))
+
+        def file_score(x):
+            w = int(x.get("width", 0) or 0)
+            h = int(x.get("height", 0) or 0)
+            portrait = 1 if h > w else 0
+            full_hd = 1 if h >= 1280 and w >= 720 else 0
+            return (portrait, full_hd, min(w, 1080) * min(h, 1920))
+
+        best = max(files, key=file_score)
+        w = int(best.get("width", 0) or 0)
+        h = int(best.get("height", 0) or 0)
+        page_url = str(item.get("url") or "")
+        rel, detail = _media_relevance(page_url, query, must_terms)
+        quality = (1.2 if h > w else -1.0) + (1.0 if h >= 1280 and w >= 720 else 0.0)
+        duration_bonus = 0.4 if 4 <= duration <= 30 else 0.0
+        rank_bonus = max(0.0, 0.8 - (rank - 1) * 0.05)
+        score = rel + quality + duration_bonus + rank_bonus
         out.append({
+            "media_type": "video",
             "id": item.get("id"),
-            "duration": item.get("duration"),
+            "duration": duration,
             "url": best.get("link"),
-            "width": best.get("width"),
-            "height": best.get("height"),
-            "page_url": item.get("url"),
+            "width": w,
+            "height": h,
+            "page_url": page_url,
             "query": query,
+            "score": round(score, 4),
+            "relevance": detail,
+            "creator": (item.get("user") or {}).get("name"),
+            "creator_url": (item.get("user") or {}).get("url"),
         })
-    return out
+    return sorted(out, key=lambda x: float(x.get("score", 0.0)), reverse=True)
+
+
+def pexels_photo_search(
+    query: str,
+    api_key: str | None = None,
+    per_page: int = 30,
+    must_terms: list[str] | None = None,
+) -> list[dict]:
+    """Pexels photo fallback. Photo alt text gives us a stronger relevance check."""
+    key = (api_key or os.getenv("PEXELS_API_KEY", "")).strip()
+    if not key:
+        return []
+    r = requests.get(
+        "https://api.pexels.com/v1/search",
+        headers={"Authorization": key},
+        params={
+            "query": query,
+            "per_page": max(1, min(int(per_page), 80)),
+            "orientation": "portrait",
+            "size": "large",
+            "locale": "pt-BR",
+        },
+        timeout=60,
+    )
+    r.raise_for_status()
+    out = []
+    for rank, item in enumerate(r.json().get("photos", []), 1):
+        alt = str(item.get("alt") or "")
+        page_url = str(item.get("url") or "")
+        rel, detail = _media_relevance(alt + " " + page_url, query, must_terms)
+        width = int(item.get("width", 0) or 0)
+        height = int(item.get("height", 0) or 0)
+        quality = (1.0 if height > width else -0.5) + (0.8 if height >= 1200 else 0.0)
+        rank_bonus = max(0.0, 0.7 - (rank - 1) * 0.04)
+        score = rel + quality + rank_bonus
+        src = item.get("src") or {}
+        url = src.get("portrait") or src.get("large2x") or src.get("large") or src.get("original")
+        if not url:
+            continue
+        out.append({
+            "media_type": "photo",
+            "id": item.get("id"),
+            "url": url,
+            "width": width,
+            "height": height,
+            "page_url": page_url,
+            "query": query,
+            "score": round(score, 4),
+            "relevance": detail,
+            "alt": alt,
+            "creator": item.get("photographer"),
+            "creator_url": item.get("photographer_url"),
+        })
+    return sorted(out, key=lambda x: float(x.get("score", 0.0)), reverse=True)
+
+
+def collect_scene_media(scene_visuals: list[dict], min_score: float = 2.4) -> list[dict]:
+    """Choose one relevant Pexels asset per scene; never fill a scene with weak generic media."""
+    if not os.getenv("PEXELS_API_KEY", "").strip():
+        return []
+    selected: list[dict] = []
+    for scene_idx, plan in enumerate(scene_visuals[:5], 1):
+        query = str(plan.get("query") or "").strip()
+        fallback = str(plan.get("fallback_query") or "").strip()
+        must_terms = [str(x).strip() for x in list(plan.get("must_terms") or []) if str(x).strip()]
+        queries = []
+        for value in (query, fallback):
+            if value and value.lower() not in [x.lower() for x in queries]:
+                queries.append(value)
+
+        winner = None
+        attempts = []
+        for q in queries:
+            try:
+                videos = pexels_search(q, must_terms=must_terms)
+                photos = pexels_photo_search(q, must_terms=must_terms)
+            except Exception as exc:
+                attempts.append({"query": q, "error": repr(exc)})
+                continue
+
+            pool = videos[:8] + photos[:8]
+            if pool:
+                candidate = max(pool, key=lambda x: float(x.get("score", 0.0)))
+                attempts.append({
+                    "query": q,
+                    "best_type": candidate.get("media_type"),
+                    "best_score": candidate.get("score"),
+                    "best_url": candidate.get("page_url"),
+                })
+                if float(candidate.get("score", 0.0)) >= min_score:
+                    winner = candidate
+                    break
+
+        if winner:
+            winner = dict(winner)
+            winner.update({
+                "scene": scene_idx,
+                "planned_query": query,
+                "fallback_query": fallback,
+                "must_terms": must_terms,
+                "selection_attempts": attempts,
+                "accepted": True,
+            })
+            selected.append(winner)
+        else:
+            selected.append({
+                "scene": scene_idx,
+                "planned_query": query,
+                "fallback_query": fallback,
+                "must_terms": must_terms,
+                "selection_attempts": attempts,
+                "accepted": False,
+                "reason": "no Pexels asset passed scene relevance threshold",
+            })
+    return selected
 
 
 def collect_stock_videos(search_terms: list[str], max_videos: int = 5) -> list[dict]:
+    """Compatibility helper for older callers."""
     found: list[dict] = []
     seen: set[str] = set()
     for term in search_terms:
@@ -426,3 +606,4 @@ def collect_stock_videos(search_terms: list[str], max_videos: int = 5) -> list[d
         if len(found) >= max_videos:
             break
     return found
+
