@@ -248,11 +248,11 @@ Formato obrigatório: JSON com:
   "titles": [["linha1","linha2"], ... exatamente 5],
   "blocks": [[frases...], ... exatamente 5],
   "scene_visuals": [
-    {"query":"busca Pexels específica da cena 1 em inglês","fallback_query":"busca mais simples","must_terms":["termo visual essencial"]},
-    {"query":"...","fallback_query":"...","must_terms":["..."]},
-    {"query":"...","fallback_query":"...","must_terms":["..."]},
-    {"query":"...","fallback_query":"...","must_terms":["..."]},
-    {"query":"...","fallback_query":"...","must_terms":["..."]}
+    {{"query":"busca Pexels específica da cena 1 em inglês","fallback_query":"busca mais simples","must_terms":["termo visual essencial"]}},
+    {{"query":"...","fallback_query":"...","must_terms":["..."]}},
+    {{"query":"...","fallback_query":"...","must_terms":["..."]}},
+    {{"query":"...","fallback_query":"...","must_terms":["..."]}},
+    {{"query":"...","fallback_query":"...","must_terms":["..."]}}
   ],
   "search_terms": ["...", "...", "...", "...", "..."],
   "caption": "..."
