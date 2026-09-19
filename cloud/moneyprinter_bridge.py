@@ -246,6 +246,13 @@ Formato obrigatório: JSON com:
   "commons_query": "...",
   "titles": [["linha1","linha2"], ... exatamente 5],
   "blocks": [[frases...], ... exatamente 5],
+  "scene_visuals": [
+    {"query":"busca Pexels específica da cena 1 em inglês","fallback_query":"busca mais simples","must_terms":["termo visual essencial"]},
+    {"query":"...","fallback_query":"...","must_terms":["..."]},
+    {"query":"...","fallback_query":"...","must_terms":["..."]},
+    {"query":"...","fallback_query":"...","must_terms":["..."]},
+    {"query":"...","fallback_query":"...","must_terms":["..."]}
+  ],
   "search_terms": ["...", "...", "...", "...", "..."],
   "caption": "..."
 }}
@@ -284,6 +291,15 @@ TAMANHO:
 - escreva TODO número e unidade por extenso em português do Brasil.
 - exemplos: "218 dB" vira "duzentos e dezoito decibéis"; "4700°C" vira "quatro mil e setecentos graus Celsius"; "100 J" vira "cem joules".
 - algarismos podem aparecer somente em search_terms/metadata, nunca no texto falado.
+
+VISUAL POR CENA:
+- scene_visuals deve ter exatamente 5 itens, na mesma ordem das cenas.
+- cada query deve descrever EXATAMENTE o que aquela cena precisa mostrar, não apenas o assunto geral.
+- prefira inglês, nomes conhecidos e objetos/ações concretos que existam em bancos de mídia.
+- fallback_query deve ser uma versão mais simples, mas ainda fiel à cena.
+- must_terms deve ter 1 a 3 palavras/conceitos que precisam aparecer na descrição/URL da mídia para ela ser aceita.
+- não use termos abstratos como "curiosity", "amazing", "science" ou "technology" sozinhos.
+- exemplo: fala sobre sinal Wi-Fi atravessando parede -> query "wifi router signal through wall home", fallback "wifi router wall", must_terms ["wifi","router"].
 
 TÍTULOS:
 - 2 linhas por cena.
