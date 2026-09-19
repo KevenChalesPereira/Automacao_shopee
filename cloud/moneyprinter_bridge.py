@@ -339,12 +339,29 @@ TEXTO-FONTE:
             for row in list(data.get("blocks") or [])
             for x in (row if isinstance(row, list) else [])
         )
-        if not re.search(r"\d", spoken):
+        visuals = list(data.get("scene_visuals") or [])
+        visuals_ok = (
+            len(visuals) == 5
+            and all(
+                isinstance(x, dict)
+                and str(x.get("query") or "").strip()
+                and str(x.get("fallback_query") or "").strip()
+                and list(x.get("must_terms") or [])
+                for x in visuals
+            )
+        )
+        numbers_ok = not re.search(r"\d", spoken)
+        if numbers_ok and visuals_ok:
             data["spoken_numbers_normalized_ptbr"] = True
+            data["scene_visuals_validated"] = True
             return data
-        last = spoken
-        print("MONEYPRINTER_NUMBER_RETRY", attempt, spoken, flush=True)
-    raise RuntimeError(f"Roteiro ainda contém algarismos no texto falado: {last}")
+        last = {"spoken": spoken, "numbers_ok": numbers_ok, "visuals_ok": visuals_ok}
+        print("MONEYPRINTER_SCRIPT_RETRY", attempt, json.dumps(last, ensure_ascii=False), flush=True)
+        prompt += (
+            "\nCORREÇÃO OBRIGATÓRIA: devolva exatamente 5 scene_visuals completos, um por cena, "
+            "cada um com query, fallback_query e must_terms; e mantenha o texto falado sem algarismos."
+        )
+    raise RuntimeError(f"Roteiro inválido após 3 tentativas: {last}")
 
 def metadata_from_script(video_subject: str, script: str) -> dict:
     """Hosted adaptation of MoneyPrinter Backend/gpt.py generate_metadata()."""
